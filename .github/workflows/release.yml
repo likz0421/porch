@@ -193,6 +193,30 @@ jobs:
           grep -q '"service":"porch"' /tmp/ping.json
           pkill -f 'porch -cd' || true
 
+      - name: 断言端口写进配置而不是钉死在服务参数里
+        run: |
+          set -e
+          # 1) -p 必须落到 base.json（这样以后网页里改端口才有效）
+          sudo sh install.sh -y --no-service -p 18080 -d /usr/local/bin -c /tmp/porch-smoke/porchconf
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/porch-smoke/porchconf/base.json'))
+          assert d.get('adminWebListenPort') == 18080, d
+          print('OK: base.json adminWebListenPort =', d['adminWebListenPort'])
+          PY
+
+          # 2) 同版本再给一个新端口：应走「只改端口」轻量路径，不重新下载
+          sudo sh install.sh -y --no-service -p 18081 -d /usr/local/bin -c /tmp/porch-smoke/porchconf \
+            | tee /tmp/port.log
+          grep -q '只改管理端口' /tmp/port.log
+          grep -q '下载 porch_' /tmp/port.log && { echo "FAIL: 只改端口却又重新下载了"; exit 1; } || true
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/porch-smoke/porchconf/base.json'))
+          assert d.get('adminWebListenPort') == 18081, d
+          print('OK: base.json adminWebListenPort =', d['adminWebListenPort'])
+          PY
+
       - name: 卸载
         run: sh install.sh --uninstall -y || true
 
@@ -279,6 +303,45 @@ jobs:
               echo "FAIL: 没有 /etc/rc.d/S99porch"; ls -la /etc/rc.d/; exit 1;
             }
             echo "OK: /etc/rc.d/S99porch -> $(readlink /etc/rc.d/S99porch)"
+          '
+
+      - name: 装 LuCI 界面包并断言（菜单 / ACL / 视图文件都要在）
+        run: |
+          set -e
+          V="${GITHUB_REF_NAME#v}"
+          sudo cp "assets/luci-app-porch_${V}_all.apk" /mnt/owrt/tmp/luci.apk
+          # 这个 rootfs 是纯基础系统，里面没有 luci-base，直接装会被依赖卡住。
+          # 先用正常方式装；装不上就退到 --force-broken-world 把文件铺进去，
+          # 断言的是「界面文件与菜单真的进系统了」，这正是「装完没有 LuCI」的根因。
+          sudo chroot /mnt/owrt /bin/sh -c '
+            set -e
+            if apk add --repositories-file /dev/null --allow-untrusted /tmp/luci.apk 2>/tmp/apk.err; then
+              echo "OK: apk add 完整安装通过（依赖满足）"
+            else
+              echo "--- 首次安装输出 ---"; cat /tmp/apk.err || true
+              echo "退到 --force-broken-world（rootfs 缺 luci-base）"
+              apk add --repositories-file /dev/null --allow-untrusted \
+                --force-broken-world /tmp/luci.apk
+            fi
+            echo "--- 界面文件 ---"
+            ls -l /usr/share/luci/menu.d/luci-app-porch.json \
+                  /usr/share/rpcd/acl.d/luci-app-porch.json \
+                  /www/luci-static/resources/view/porch/status.js \
+                  /www/luci-static/resources/view/porch/settings.js
+            grep -q "admin/services/porch" /usr/share/luci/menu.d/luci-app-porch.json
+            grep -q "porch/settings" /usr/share/luci/menu.d/luci-app-porch.json
+            # 菜单 JSON 必须是合法 JSON，否则 LuCI 会整个菜单树报错
+            if command -v jsonfilter >/dev/null 2>&1; then
+              jsonfilter -i /usr/share/luci/menu.d/luci-app-porch.json \
+                -e "@[\"admin/services/porch\"].title" >/dev/null
+              echo "OK: 菜单 JSON 可解析"
+            fi
+            # 界面里不该再出现「改了也没用」的假开关
+            if grep -q "allow_internet" /www/luci-static/resources/view/porch/settings.js; then
+              echo "FAIL: settings.js 里还有未接进启动参数的 allow_internet"
+              exit 1
+            fi
+            echo "OK: 菜单 / ACL / 视图齐全"
           '
 
       - name: 起服务并访问 /api/ping

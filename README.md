@@ -28,13 +28,21 @@ irm https://raw.githubusercontent.com/likz0421/porch/main/install.ps1 | iex
 脚本会自己完成这些事：**识别系统与 CPU 架构 → 选对应的包 → 多镜像重试下载 → 校验 SHA256 →
 装好实跑一次自检 → 配好开机自启**。可以反复执行，同版本会跳过，不同版本原地升级且配置不动。
 
+OpenWrt 上如果系统里已经有 LuCI，脚本会把界面包 `luci-app-porch` 一起装好，
+装完在路由器后台「**服务 → Porch 门廊**」就能直接配，不用再去敲 `opkg` / `apk`。
+
 ```sh
 sh install.sh --check        # 只体检，不改任何东西
 sh install.sh -v 1.1.0       # 装指定版本
+sh install.sh -p 8080        # 装的时候指定管理端口（不给会交互问一次）
+sh install.sh --probe        # 先测速再下载（大陆网络推荐）
 sh install.sh --file ./porch_1.1.0_linux_arm64.tar.gz   # 离线装（不联网）
 sh install.sh --uninstall    # 卸载（--purge 连配置一起删）
 sh install.sh -h             # 全部参数
 ```
+
+> **管理端口不是写死的**：`-p` 写进程序配置 `base.json`，装完还能在网页
+> 「系统设置 → 管理端口」或 OpenWrt 的「服务 → Porch 门廊 → 基础设置」里改，重启即生效。
 
 <details>
 <summary><b>覆盖哪些平台</b>（与上游 Lucky 的发布范围对齐，另加 mips64le）</summary>

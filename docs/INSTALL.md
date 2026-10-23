@@ -57,7 +57,9 @@ irm https://raw.githubusercontent.com/likz0421/porch/main/install.ps1 | iex
 2. **解析版本**：默认取 GitHub 最新 tag；`-v` 可指定任意已发布版本
 3. **选包**：按 `uname -s` + `uname -m` 映射到对应资产名（映射表见 [PLATFORMS.md](PLATFORMS.md#4-各架构怎么选脚本会自动判断这里是查表用)）
 4. **磁盘与权限检查**：剩余空间 ≥ 30 MB；安装目录可创建、可写入（不可写时提示用 sudo 或 `--user`）
-5. **下载**：先直连，失败自动切镜像；每个源重试 3 次（1s/2s/4s 退避）
+5. **下载**：两轮策略——第 1 轮每个源只试 1 次、连接 10s 超时（死源快速跳过，
+   不会在一个挂掉的加速站上白等 50 秒）；第 2 轮才对失败过的源重试。
+   加 `--probe` 会先给每个源测速，按实际耗时排序
 6. **校验**：用 Release 里的 `SHA256SUMS` 比对，不一致直接中止
 7. **解包 + 自检**：解到安装目录下的临时目录（避开 `/tmp` 可能是 noexec），
    执行 `porch -v`；mips 平台若因浮点 ABI 起不来，自动改下 softfloat 版重试
@@ -81,19 +83,39 @@ sh install.sh -h
 | `-v, --version VER` | 安装指定版本，如 `1.1.0` 或 `v1.1.0`；默认最新 |
 | `-d, --dir DIR` | 程序安装目录，默认 `/usr/local/bin`（OpenWrt 自动用 `/usr/bin`）|
 | `-c, --conf DIR` | 配置目录，默认 `/etc/porch/porchconf` |
-| `-p, --port PORT` | 管理端口，默认沿用配置里的 `16601` |
+| `-p, --port PORT` | 管理端口，默认 `16601`。**不给会交互问一次**（回车即默认）|
 | `--file PATH` | 从本地 `tar.gz` 安装，全程不联网（离线机 / 内网 / 已下好的包）|
 | `--mirror LIST` | 下载镜像，逗号分隔。空串表示直连。例：`--mirror ",https://ghfast.top/"` |
+| `--probe` | 先给每个镜像**实测测速**，按耗时排序再下载（大陆网络推荐）|
+| `--luci` | OpenWrt 上强制安装 LuCI 界面包（默认「系统里有 LuCI 就自动装」）|
+| `--no-luci` | 不装 LuCI 界面，只要后端 |
 | `--user` | 装到 `~/.local/bin` + `~/.config/porch`，不装服务 |
 | `--no-service` | 只放二进制，不创建开机自启 |
 | `--insecure` | 跳过 TLS 校验（设备 CA 过期时用，有中间人风险）|
 | `--check` | 只输出环境检测结果，不改任何东西 |
 | `--dry-run` | 打印将执行的动作，不落盘 |
-| `--uninstall` | 卸载（默认保留配置）|
-| `--purge` | 卸载时连配置一起删 |
+| `--uninstall` | 卸载：服务 + 二进制 + LuCI 界面包，**配置保留** |
+| `--purge` | 卸载时连配置目录一起删 |
 | `-f, --force` | 同版本也重装 |
 | `-y, --yes` | 非交互 |
 | `--debug` | 输出调试信息 |
+| `http://…` 位置参数 | 自建下载源根地址，等同 `PORCH_BASE_URL`（兼容 Lucky 脚本的传参风格）|
+
+### 3.1 端口为什么不算「写死」
+
+`-p` 指定的端口不会写进服务启动参数，而是写进程序配置 `base.json` 的
+`adminWebListenPort`。这样以后在网页「系统设置 → 管理端口」里改端口，
+**重启后是生效的**；如果端口被压死在 `ExecStart` 里，网页里改了也白改。
+
+三种改端口的方式都行：
+
+```sh
+sh install.sh -p 8080        # 安装时装；已装过就只改端口，不重新下载二进制
+# 或者在网页「系统设置 → 管理端口」里改，重启服务生效
+# OpenWrt 上也可以在 路由器后台「服务 → Porch 门廊 → 基础设置」里改
+```
+
+> 只有配置目录写不进去（权限异常）时，才退回把 `-p` 塞进服务参数兜底。
 
 环境变量（适合写进 Ansible / 批量脚本）：
 
@@ -108,6 +130,7 @@ PORCH_VERSION=1.1.0 PORCH_DIR=/opt/porch/bin PORCH_MIRROR=",https://ghfast.top/"
 | `PORCH_CONF_DIR` | 配置目录 |
 | `PORCH_PORT` | 端口 |
 | `PORCH_MIRROR` | 镜像列表 |
+| `PORCH_PROBE` | 设为 `1` 等同 `--probe` |
 | `PORCH_REPO` | 仓库坐标，默认 `likz0421/porch`（自建 fork 时用）|
 | `PORCH_BASE_URL` | 自建下载源根地址，可逗号分隔多个（内网分发用，天然按顺序回退）|
 | `PORCH_INSTALL_LOG` | 日志文件路径 |

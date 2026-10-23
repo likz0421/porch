@@ -28,8 +28,12 @@ DEFAULT_PORT="16601"
 INSTALL_DIR="${PORCH_DIR:-}"
 CONF_DIR="${PORCH_CONF_DIR:-}"
 PORT="${PORCH_PORT:-}"
+PORT_ARG=""          # 只有配置写不进去时才退回用服务参数 -p 兜底
 VERSION_ARG="${PORCH_VERSION:-}"
 MIRROR_ARG="${PORCH_MIRROR:-}"
+PROBE="${PORCH_PROBE:-0}"
+BASE_URL_ARG="${PORCH_BASE_URL:-}"
+LUCI_MODE="auto"
 NO_SERVICE=0
 ASSUME_YES=0
 FORCE=0
@@ -86,36 +90,56 @@ usage() {
 	cat <<'USAGE'
 Porch 门廊 · 一键在线安装
 
-用法: sh install.sh [选项]
+用法: sh install.sh [选项] [下载源根地址]
 
+最常用
+  sh install.sh                    安装 / 升级到最新版（已有配置保留）
+  sh install.sh -p 8080            安装时指定管理端口（不给就交互问一次）
+  sh install.sh --uninstall        卸载程序与服务，配置保留
+  sh install.sh --uninstall --purge   卸载并连配置一起删（不可恢复）
+
+选项
   -v, --version VER    安装指定版本（如 1.1.0 或 v1.1.0；默认最新）
   -d, --dir DIR        程序安装目录（默认 /usr/local/bin）
   -c, --conf DIR       配置目录（默认 /etc/porch/porchconf）
-  -p, --port PORT      管理端口（默认沿用配置里的 16601）
+  -p, --port PORT      管理端口（默认 16601；安装时不给会交互问一次，回车即默认）
+                       已装过的情况下单独给 -p 只改端口，不重新下载二进制
       --file PATH      从本地 tar.gz 安装（离线 / 内网 / 已下载好的包）
       --mirror LIST    下载镜像，逗号分隔；空串表示只走直连
                        例: --mirror ",https://ghfast.top/"  (逗号前为空=先试直连)
+      --probe          先给每个镜像测速，按实际耗时排序再下载（大陆网络推荐）
+      --luci           在 OpenWrt 上强制安装 LuCI 界面包（默认有 LuCI 就自动装）
+      --no-luci        不装 LuCI 界面，只要后端
       --user           安装到当前用户目录（~/.local/bin、~/.config/porch），不装服务
       --no-service     只放二进制，不创建开机自启/服务
       --insecure       跳过 TLS 证书校验（旧设备 CA 过期时用，不安全）
       --check          只输出环境检测结果，不做任何修改
       --dry-run        打印将执行的动作，不落盘
-      --uninstall      卸载（默认保留配置）
-      --purge          卸载时连配置一起删
+      --uninstall      卸载（服务 + 二进制 + LuCI 界面包，配置保留）
+      --purge          卸载时连配置目录一起删
   -f, --force          已安装同版本时也重装
   -y, --yes            全部确认（非交互）
       --debug          输出调试信息（等同 set -x）
   -h, --help           显示本帮助
 
 环境变量: PORCH_VERSION PORCH_DIR PORCH_CONF_DIR PORCH_PORT PORCH_MIRROR
-          PORCH_REPO（仓库，默认 likz0421/porch）PORCH_INSTALL_LOG
+          PORCH_REPO（仓库，默认 likz0421/porch）PORCH_INSTALL_LOG PORCH_PROBE
+          PORCH_BASE_URL（自建下载源，等同末尾的位置参数）
+
+OpenWrt 说明: 检测到系统里有 LuCI 时，会顺带把「服务 → Porch 门廊」界面装上；
+              纯后端环境（无 LuCI）默认跳过，要强制装加 --luci。
 
 示例:
   curl -fsSL https://raw.githubusercontent.com/likz0421/porch/main/install.sh | sh
+  sh install.sh --probe            # 大陆网络：先测速再下载
   sh install.sh -v 1.1.0 --mirror ",https://ghfast.top/"
+  sh install.sh http://your-mirror.host   # 自建源（兼容 Lucky 脚本的传参风格）
   sh install.sh --check
   sh install.sh --file ./porch_1.1.0_linux_x86_64.tar.gz
   sh install.sh --uninstall --purge
+
+大陆网络拉不下这个脚本本身时，先把 GitHub 地址套一层加速：
+  curl -fsSL https://ghfast.top/https://raw.githubusercontent.com/likz0421/porch/main/install.sh | sh -s -- --probe
 USAGE
 }
 
@@ -129,6 +153,9 @@ while [ $# -gt 0 ]; do
 		--file=*)     PKG_PATH="${1#*=}"; shift ;;
 		--mirror)     MIRROR_ARG="${2:-}"; shift 2 ;;
 		--mirror=*)   MIRROR_ARG="${1#*=}"; shift ;;
+		--probe)      PROBE=1; shift ;;
+		--luci)       LUCI_MODE=yes; shift ;;
+		--no-luci)    LUCI_MODE=no; shift ;;
 		--user)       USER_INSTALL=1; shift ;;
 		--no-service) NO_SERVICE=1; shift ;;
 		--insecure)   INSECURE=1; shift ;;
@@ -140,6 +167,10 @@ while [ $# -gt 0 ]; do
 		-y|--yes)     ASSUME_YES=1; shift ;;
 		--debug)      DEBUG=1; set -x; shift ;;
 		-h|--help)    usage; exit 0 ;;
+		*://*)
+			# 兼容 Lucky 官方脚本的用法：sh install.sh http://your-mirror.host
+			# 位置参数直接当下载源根地址
+			BASE_URL_ARG=$1; shift ;;
 		*)            die "未知参数: $1" "运行 sh install.sh -h 查看全部参数" ;;
 	esac
 done
@@ -268,8 +299,15 @@ detect_sha() {
 }
 
 # ------------------------------- 下载 ---------------------------------------
-# 镜像前缀：直接把 GitHub 的完整 URL 接在前缀后面。
-# 顺序 = 用户指定的顺序；未指定时先直连，再依次尝试公共加速。
+# 默认候选源 = 直连 + 实测可用的公共加速站。
+#
+# 这份清单是 2026-10 逐个实测出来的：用 curl 对 release 资产发 Range 请求，
+# 能拿到 206/200 且内容正确的才写进来。被排除的典型：
+#   gh.llkk.cc / github.moeyy.xyz / hub.gitmirror.com / gh.xxooo.cf —— 连接超时
+#   gh-proxy.net —— 返回一段 JS 跳转页（563 字节），脚本无法直接下载
+# 这类站点寿命普遍不长，所以清单必须"少而准"，并且随时能用 --mirror 覆盖。
+DEFAULT_MIRRORS=",https://ghfast.top/,https://gh-proxy.com/,https://ghproxy.net/"
+
 MIRRORS=""
 build_mirrors() {
 	if [ -n "$MIRROR_ARG" ]; then
@@ -277,26 +315,31 @@ build_mirrors() {
 	elif [ -n "${PORCH_BASE_URL:-}" ]; then
 		MIRRORS=""
 	else
-		MIRRORS=",https://ghfast.top/,https://gh-proxy.com/,https://ghproxy.net/"
+		MIRRORS="$DEFAULT_MIRRORS"
 	fi
 	dbg "镜像列表: [$MIRRORS]"
 }
 
-_fetch_once() { # url dest
+# _fetch_once <url> <dest> [连接超时秒] [整体超时秒]
+# 超时可调是为了「快速失败」：先给死源很短的时间，别在一个连不上的站上白等。
+_fetch_once() {
+	_f_url=$1; _f_dest=$2; _f_ct=${3:-15}; _f_mt=${4:-300}
 	case "$DL_KIND" in
 		curl)
 			if [ "$INSECURE" = 1 ]; then
-				curl -fsSL -k -m 300 --connect-timeout 15 -o "$2" "$1"
+				curl -fsSL -k -m "$_f_mt" --connect-timeout "$_f_ct" -o "$_f_dest" "$_f_url"
 			else
-				curl -fsSL -m 300 --connect-timeout 15 -o "$2" "$1"
+				curl -fsSL -m "$_f_mt" --connect-timeout "$_f_ct" -o "$_f_dest" "$_f_url"
 			fi ;;
 		wget)
+			# GNU wget 没有「总超时」，-T/--timeout 管的是连接与每次读的超时。
+			# 这里就用连接超时值：死源快速失败，大文件只要不断流就不会被掐。
 			if [ "$DL_TOOL" = uclient-fetch ]; then
-				uclient-fetch -q -T 60 -O "$2" "$1" 2>/dev/null
+				uclient-fetch -q -T 60 -O "$_f_dest" "$_f_url" 2>/dev/null
 			elif [ "$INSECURE" = 1 ]; then
-				wget --no-check-certificate -q -T 60 -O "$2" "$1"
+				wget --no-check-certificate -q --timeout="$_f_ct" -O "$_f_dest" "$_f_url"
 			else
-				wget -q -T 60 -O "$2" "$1"
+				wget -q --timeout="$_f_ct" -O "$_f_dest" "$_f_url"
 			fi ;;
 		*) return 1 ;;
 	esac
@@ -340,19 +383,101 @@ _mirror_display() {
 	printf '%s' "$_out"
 }
 
+# probe_sources
+# 给每个候选源测一次速，按实际耗时重排 MIRRORS。
+#
+# 为什么需要：大陆网络下各加速站差异极大（实测同一台机器上 ghfast.top 29 KB/s、
+# ghproxy.net 只有 6.8 KB/s），固定顺序会让"能通但很慢"的源排前面，白白拖长下载。
+# 探测只取 SHA256SUMS 的前 1KB（几毫秒就结束），代价很小。
+#
+# 只用 curl 能拿到亚秒耗时；wget/uclient-fetch 拿不到精确时间，就降级成
+# "通/不通"分区（能通的保持原顺序在前），不做速度排序。
+probe_sources() {
+	[ "$PROBE" = 1 ] || return 0
+	[ "$DRY_RUN" = 0 ] || { info "演练模式，跳过镜像测速"; return 0; }
+	[ -n "$MIRRORS" ] || { info "只走直连，无需测速"; return 0; }
+	[ -n "$DL_KIND" ] || return 0
+
+	_pf="$WORK/.mirror-probe"
+	: >"$_pf" 2>/dev/null || return 0
+
+	_ifs=$IFS; IFS=,
+	# shellcheck disable=SC2086
+	set -- $MIRRORS
+	IFS=$_ifs
+
+	info "镜像测速中（各取 SHA256SUMS 前 1KB）…"
+	_n=0
+	for _p in "$@"; do
+		_n=$((_n + 1))
+		if [ -z "$_p" ]; then _label="(直连)"; else _label=$(_short_host "$_p"); fi
+		_probe_url="${_p}${BASE_URL}/${TAG}/SHA256SUMS"
+
+		_t=""
+		if [ "$DL_KIND" = curl ]; then
+			_t=$(curl -fsSL -m 12 --connect-timeout 6 -r 0-1023 -o /dev/null \
+				-w '%{time_total}' "$_probe_url" 2>/dev/null)
+		fi
+		if [ -n "$_t" ]; then
+			printf '%08.3f|%s\n' "$_t" "$_p" >>"$_pf"
+			printf '   %-22s %6.2fs\n' "$_label" "$_t"
+		else
+			# 拿不到耗时（wget 系）或请求失败：用 999 排到最后
+			printf '%08.3f|%s\n' 999 "$_p" >>"$_pf"
+			printf '   %-22s %s\n' "$_label" "不可用/未知"
+		fi
+	done
+
+	# 定长耗时做字典序排序 = 数值排序，不需要 sort -n 的兼容性顾虑
+	_new=""
+	while IFS= read -r _line; do
+		_p=${_line#*|}
+		if [ -z "$_new" ]; then _new=$_p; else _new="$_new,$_p"; fi
+	done <<EOF
+$(sort "$_pf")
+EOF
+	[ -n "$_new" ] && MIRRORS=$_new
+	rm -f "$_pf" 2>/dev/null || true
+	dbg "测速后镜像列表: [$MIRRORS]"
+}
+
 # download_asset <asset> <dest>
-# 每个源最多试 3 次（1s/2s/4s 退避），全失败就换下一个源。
-# 候选源 = 镜像前缀 × GitHub 基础 URL；PORCH_BASE_URL 可用逗号分隔给多个自建源。
+# 两轮策略，目的是"死源不要白等"：
+#   第 1 轮 每个源只试 1 次，连接超时 10s —— 连不上就立刻换下一个
+#   第 2 轮 对第 1 轮失败的源再试 2 次，连接超时 15s/整体 300s —— 网络抖动的情况
+# 老实现是"每个源重试 3 次再换"，一个死源要耗掉 3×(15s+退避) ≈ 50s，
+# 大陆网络下两三个站挂掉就是好几分钟，这正是要修的问题。
+#
+# 候选源 = 镜像前缀 × GitHub 基础 URL；PORCH_BASE_URL 可用逗号分隔给多个自建源，
+# 自建源会额外尝试"站点根直接放资产"的扁平布局（Lucky 官方源就是这种）。
 # MIRRORS 为空表示"只走直连"——用 set -- 展开，避免空列表导致循环体一次都不执行。
+#
+# GOOD_BASE 记住上一次成功的源：SHA256SUMS 下完后，主包直接用同一个源，
+# 不用再把整个候选列表重走一遍。
+GOOD_BASE=""
 download_asset() {
 	asset=$1; dest=$2
 	[ -n "$DL_KIND" ] || die "没有可用的下载工具（curl / wget / uclient-fetch 都没有）" \
 	                        "OpenWrt 可试: opkg update && opkg install uclient-fetch ca-bundle"
 	[ -n "$BASE_URL" ] || die "内部错误: BASE_URL 未设置"
 
-	# 组装候选 base（元素形如 https://github.com/u/r/releases/download 或自建源目录）
+	# 候选列表，每项是 "URL|源标识"。源标识必须是「目录」而不是完整 URL，
+	# 否则换文件时会把上一个文件的 URL 当成源，下回来的是错内容。
 	if [ -n "${PORCH_BASE_URL:-}" ]; then
-		_bases=$PORCH_BASE_URL
+		_ifs=$IFS; IFS=,
+		# shellcheck disable=SC2086
+		set -- $PORCH_BASE_URL
+		IFS=$_ifs
+		_cands=""
+		for _b in "$@"; do
+			_b=${_b%/}
+			_cands="${_cands}${_cands:+;}${_b}/$TAG/$asset|${_b}"
+			# 站点根直接放资产的自建源（不强制 GitHub 的 releases/download 布局）
+			case "$_b" in
+				*/releases/download) ;;
+				*) _cands="${_cands};${_b}/$asset|${_b}" ;;
+			esac
+		done
 	else
 		if [ -z "$MIRRORS" ]; then
 			set -- ""
@@ -362,44 +487,88 @@ download_asset() {
 			set -- $MIRRORS
 			IFS=$_ifs
 		fi
-		_bases=""
+		_cands=""
 		for _prefix in "$@"; do
 			# 镜像站在前缀后面看到的必须是完整的原始 URL
-			_bases="${_bases:+$_bases,}${_prefix}${BASE_URL}"
+			_b="${_prefix}${BASE_URL}"
+			_cands="${_cands}${_cands:+;}${_b}/$TAG/$asset|${_b}"
 		done
 	fi
 
-	_ifs=$IFS; IFS=,
+	_ifs=$IFS; IFS=';'
 	# shellcheck disable=SC2086
-	set -- $_bases
+	set -- $_cands
 	IFS=$_ifs
 
-	for _base in "$@"; do
-		url="${_base%/}/$TAG/$asset"
-		host=$(_short_host "$url"); [ -z "$host" ] && host=$_base
+	# 上次成功过的源提到最前（一次安装要下两三个文件，后面的不用再试错）
+	if [ -n "$GOOD_BASE" ]; then
+		_ordered=""
+		for _c in "$@"; do
+			[ "${_c#*|}" = "$GOOD_BASE" ] && _ordered="${_ordered}${_ordered:+;}$_c"
+		done
+		for _c in "$@"; do
+			[ "${_c#*|}" = "$GOOD_BASE" ] || _ordered="${_ordered}${_ordered:+;}$_c"
+		done
+		_ifs=$IFS; IFS=';'
+		# shellcheck disable=SC2086
+		set -- $_ordered
+		IFS=$_ifs
+	fi
+
+	if [ "$DRY_RUN" = 1 ]; then
+		for _c in "$@"; do info "[dry-run] 下载 ${_c%%|*}"; done
+		return 0
+	fi
+
+	# ---- 第 1 轮：每个源 1 次，只等连接握手，快速失败 ----
+	# 整体超时给到 900s：慢速线路下 2.8MB 可能要几分钟，靠 connect-timeout
+	# 快速踢掉死源就够了，别用整体超时把正常的大文件下载掐断。
+	_failed=""
+	for _c in "$@"; do
+		_u=${_c%%|*}; _b=${_c#*|}
+		host=$(_short_host "$_u"); [ -z "$host" ] && host=$_b
+		info "下载 $asset  ← ${host}"
+		if _fetch_once "$_u" "$dest.part" 10 900; then
+			mv -f "$dest.part" "$dest" 2>/dev/null || { rm -f "$dest.part"; continue; }
+			ok "下载完成 $(du -h "$dest" 2>/dev/null | cut -f1)"
+			GOOD_BASE=$_b
+			return 0
+		fi
+		rm -f "$dest.part"
+		warn "$host 不通/超时，换下一个"
+		_failed="${_failed:+$_failed;}${_c}"
+	done
+
+	# ---- 第 2 轮：对失败过的源再给两次机会（网络抖动）----
+	[ -n "$_failed" ] || return 1
+	warn "所有源第一轮都没成功，开始第二轮重试（更长的连接超时）"
+	_ifs=$IFS; IFS=';'
+	# shellcheck disable=SC2086
+	set -- $_failed
+	IFS=$_ifs
+	for _c in "$@"; do
+		_u=${_c%%|*}; _b=${_c#*|}
+		host=$(_short_host "$_u"); [ -z "$host" ] && host=$_b
 		attempt=1
-		while [ "$attempt" -le 3 ]; do
-			if [ "$DRY_RUN" = 1 ]; then
-				info "[dry-run] 下载 $url"
-				return 0
-			fi
-			info "下载 $asset  ← ${host}（第 $attempt 次）"
-			if _fetch_once "$url" "$dest.part"; then
+		while [ "$attempt" -le 2 ]; do
+			info "重试 $asset  ← ${host}（第 $attempt 次）"
+			if _fetch_once "$_u" "$dest.part" 15 900; then
 				mv -f "$dest.part" "$dest" 2>/dev/null || { rm -f "$dest.part"; continue; }
 				ok "下载完成 $(du -h "$dest" 2>/dev/null | cut -f1)"
+				GOOD_BASE=$_b
 				return 0
 			fi
 			rm -f "$dest.part"
 			warn "$host 第 $attempt 次失败"
-			case $attempt in 1) sleep 1 ;; 2) sleep 2 ;; *) sleep 4 ;; esac
+			case $attempt in 1) sleep 2 ;; *) sleep 4 ;; esac
 			attempt=$((attempt + 1))
 		done
-		warn "镜像 $host 不可用，换下一个"
 	done
 	return 1
 }
 
 # 取最新 tag：先 API（最准），再跟随 releases/latest 的跳转（不需要 API 配额）
+# 大陆网络下 api.github.com 经常被墙，所以镜像前缀也要挨个试一遍。
 latest_tag() {
 	_api="https://api.github.com/repos/$REPO/releases/latest"
 	if have curl; then
@@ -407,13 +576,17 @@ latest_tag() {
 		[ -n "$t" ] && { printf '%s' "$t"; return 0; }
 	fi
 	if [ -n "$DL_KIND" ]; then
-		for prefix in "" https://ghfast.top/ https://gh-proxy.com/; do
-			t=$(_fetch_once "${prefix}https://api.github.com/repos/$REPO/releases/latest" - 2>/dev/null)
+		_ifs=$IFS; IFS=,
+		# shellcheck disable=SC2086
+		if [ -z "$MIRRORS" ]; then set -- ""; else set -- $MIRRORS; fi
+		IFS=$_ifs
+		for _prefix in "$@"; do
+			t=$(_fetch_once "${_prefix}${_api}" - 10 20 2>/dev/null)
 			t=$(printf '%s' "$t" | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 			[ -n "$t" ] && { printf '%s' "$t"; return 0; }
 		done
 	fi
-	# 最后兜底：解析 releases/latest 的 302 Location
+	# 再兜底：解析 releases/latest 的 302 Location
 	if have curl; then
 		loc=$(curl -fsSI -m 15 "https://github.com/$REPO/releases/latest" 2>/dev/null | tr -d '\r' | sed -n 's/^[Ll]ocation:[[:space:]]*//p' | head -1)
 		case "$loc" in */tag/*) printf '%s' "${loc##*/}"; return 0 ;; esac
@@ -454,11 +627,107 @@ verify_binary() {
 	esac
 }
 
+# ------------------------------- 端口 ---------------------------------------
+# 端口不写死：默认 16601，但 -p / 交互输入 / UCI / LuCI 设置页都能改。
+# 真正落到两个地方：① 服务启动参数 -p（systemd/procd/rc.d/launchd）
+#                   ② OpenWrt 的 /etc/config/porch 里的 option port
+# 程序配置文件里的 AdminWebListenPort 不用动——命令行 -p 优先级高于它。
+
+# 从已装好的地方读回当前实际端口（升级/改端口时用来对比与展示）
+# 优先级与运行时一致：OpenWrt 的 UCI > 程序配置 base.json > 服务参数 -p（旧版本写法）
+service_port() {
+	_sp=""
+	if [ -f /etc/config/porch ] && have uci; then
+		_sp=$(uci -q get porch.@porch[0].port 2>/dev/null || true)
+	fi
+	if [ -z "$_sp" ] && [ -f "$CONF_DIR/base.json" ]; then
+		_sp=$(sed -n 's/.*"adminWebListenPort"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+			"$CONF_DIR/base.json" 2>/dev/null | head -1)
+	fi
+	if [ -z "$_sp" ] && [ -f /etc/systemd/system/porch.service ]; then
+		_sp=$(sed -n 's/^ExecStart=.*[[:space:]]-p[[:space:]]\{1,\}\([0-9][0-9]*\).*/\1/p' \
+			/etc/systemd/system/porch.service 2>/dev/null | head -1)
+	fi
+	if [ -z "$_sp" ] && [ -f /usr/local/etc/rc.d/porch ]; then
+		_sp=$(sed -n 's/.*-p[[:space:]]\{1,\}\([0-9][0-9]*\).*/\1/p' \
+			/usr/local/etc/rc.d/porch 2>/dev/null | head -1)
+	fi
+	if [ -z "$_sp" ] && [ -f /Library/LaunchDaemons/cn.porch.daemon.plist ]; then
+		_sp=$(sed -n 's/.*<string>-p<\/string><string>\([0-9][0-9]*\)<\/string>.*/\1/p' \
+			/Library/LaunchDaemons/cn.porch.daemon.plist 2>/dev/null | head -1)
+	fi
+	printf '%s' "${_sp:-}"
+}
+
+# 把端口落进程序配置 base.json —— 这是「不写死」的关键：
+# 服务启动参数里不带 -p，所以以后在网页「系统设置 → 管理端口」里改的端口
+# 重启后能真正生效，不会被安装时的一个参数永久压住。
+apply_port() {
+	[ -n "$PORT" ] || return 0
+	[ "$DRY_RUN" = 0 ] || { info "[dry-run] 把管理端口 $PORT 写入 $CONF_DIR/base.json"; return 0; }
+	mkdir -p "$CONF_DIR" 2>/dev/null || { warn "无法创建配置目录 $CONF_DIR，端口未写入配置"; return 0; }
+	_bj="$CONF_DIR/base.json"
+	if [ ! -f "$_bj" ]; then
+		# 只写端口一个键就够：程序加载时缺的字段自动用默认值补齐
+		printf '{\n  "adminWebListenPort": %s\n}\n' "$PORT" >"$_bj" || {
+			warn "写入 $_bj 失败，改用服务参数 -p $PORT 兜底"; PORT_ARG="-p $PORT"; return 0; }
+		chmod 600 "$_bj" 2>/dev/null || true
+		ok "管理端口已写入 $CONF_DIR/base.json: $PORT"
+		return 0
+	fi
+	if grep -q '"adminWebListenPort"' "$_bj" 2>/dev/null; then
+		# sed -i.bak 是 BSD/GNU 都认的写法（BSD 的 -i 必须带后缀）
+		if sed -i.bak -e "s/\"adminWebListenPort\"[[:space:]]*:[[:space:]]*[0-9]\+/\"adminWebListenPort\": $PORT/" "$_bj" 2>/dev/null; then
+			rm -f "$_bj.bak" 2>/dev/null || true
+			ok "管理端口已更新为 $PORT（$CONF_DIR/base.json）"
+		else
+			warn "改不了 $_bj 里的端口，改用服务参数 -p $PORT 兜底"; PORT_ARG="-p $PORT"
+		fi
+	else
+		# base.json 里还没有这个键：在第一个 { 后面插一行
+		if sed -i.bak -e "1s/{/{\n  \"adminWebListenPort\": $PORT,/" "$_bj" 2>/dev/null; then
+			rm -f "$_bj.bak" 2>/dev/null || true
+			ok "管理端口已写入 $CONF_DIR/base.json: $PORT"
+		else
+			warn "改不了 $_bj，改用服务参数 -p $PORT 兜底"; PORT_ARG="-p $PORT"
+		fi
+	fi
+	return 0
+}
+
+# 交互式问一次端口。只在这三种情况之外才问：
+#   已经给了 -p / 加了 -y（无人值守）/ 不是真终端
+# 注意 curl|sh 时 stdin 是脚本管道，必须从 /dev/tty 读，否则读不到用户输入。
+ask_port() {
+	[ -n "$PORT" ] && return 0
+	[ "$ASSUME_YES" = 0 ] || return 0
+	[ "$DRY_RUN" = 0 ] || return 0
+	[ "$CHECK_ONLY" = 0 ] || return 0
+	[ "$UNINSTALL" = 0 ] || return 0
+	[ -r /dev/tty ] && [ -w /dev/tty ] || return 0
+
+	_ap=""
+	_curap=$(service_port)
+	_defap=${_curap:-$DEFAULT_PORT}
+	printf '\n  管理端口（回车用 %s）: ' "$_defap" >/dev/tty
+	IFS= read -r _ap </dev/tty || _ap=""
+	[ -z "$_ap" ] && { info "管理端口: 用 $_defap"; return 0; }
+	case "$_ap" in
+		*[!0-9]*) warn "端口只能是数字，已改用 $_defap"; return 0 ;;
+	esac
+	if [ "$_ap" -lt 1 ] 2>/dev/null || [ "$_ap" -gt 65535 ] 2>/dev/null; then
+		warn "端口超出 1-65535，已改用 $_defap"; return 0
+	fi
+	PORT="$_ap"
+	ok "管理端口: $PORT"
+}
+
 # ------------------------------- 服务 ---------------------------------------
 write_systemd() {
 	_unit=/etc/systemd/system/porch.service
-	_exec="$INSTALL_DIR/$BIN_NAME -cd $CONF_DIR"
-	[ -n "$PORT" ] && _exec="$_exec -p $PORT"
+	# 端口不写进 ExecStart（除非配置写不进去）：让它以 base.json 为准，
+	# 这样网页里改端口重启才生效
+	_exec="$INSTALL_DIR/$BIN_NAME -cd $CONF_DIR${PORT_ARG:+ $PORT_ARG}"
 	[ "$DRY_RUN" = 1 ] && { info "[dry-run] 写入 $_unit"; return 0; }
 	cat >"$_unit" <<EOF
 [Unit]
@@ -502,8 +771,11 @@ config porch 'main'
 	option enabled '1'
 	option config_dir '$CONF_DIR'
 	option port '$PORT'
-	option allow_internet '0'
 EOF
+	elif [ -n "$PORT" ] && have uci; then
+		# 已有配置（重装 / 只改端口）：只动 port 一项，别覆盖用户在 LuCI 里改过的其它设置
+		uci -q set porch.@porch[0].port="$PORT" && uci -q commit porch 2>/dev/null && \
+			dbg "已更新 UCI 端口: $PORT"
 	fi
 	cat >"$_initd" <<'EOF'
 #!/bin/sh /etc/rc.common
@@ -559,7 +831,7 @@ write_rcng() {
 name=porch
 rcvar=porch_enable
 command=$INSTALL_DIR/$BIN_NAME
-porch_flags="-cd $CONF_DIR${PORT:+ -p $PORT}"
+porch_flags="-cd $CONF_DIR${PORT_ARG:+ $PORT_ARG}"
 load_rc_config \$name
 : \${porch_enable:="YES"}
 run_rc_command "\$1"
@@ -574,7 +846,7 @@ write_launchd() {
 	_plist=/Library/LaunchDaemons/cn.porch.daemon.plist
 	[ "$DRY_RUN" = 1 ] && { info "[dry-run] 写入 $_plist"; return 0; }
 	_args="<string>$INSTALL_DIR/$BIN_NAME</string><string>-cd</string><string>$CONF_DIR</string>"
-	[ -n "$PORT" ] && _args="$_args<string>-p</string><string>$PORT</string>"
+	[ -n "$PORT_ARG" ] && _args="$_args<string>-p</string><string>$PORT</string>"
 	cat >"$_plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -594,9 +866,11 @@ EOF
 }
 
 install_service() {
+	# 端口先落配置（base.json），服务参数只在配置写不进去时兜底
+	apply_port
 	[ "$NO_SERVICE" = 1 ] && { info "按 --no-service 跳过服务安装"; return 0; }
 	if [ "$USER_INSTALL" = 1 ] || [ "$IS_ROOT" = 0 ]; then
-		info "非 root 安装，跳过开机自启（需要时手动运行 $INSTALL_DIR/${BIN_NAME}）"
+		info "非 root 安装，跳过开机自启（需要时手动运行 $INSTALL_DIR/${BIN_NAME}$([ -n "$PORT" ] && echo " -p $PORT")）"
 		return 0
 	fi
 	case "$INIT_SYS" in
@@ -604,7 +878,7 @@ install_service() {
 		procd)   write_procd ;;
 		rcng)    write_rcng ;;
 		launchd) write_launchd ;;
-		*)       warn "未识别的 init 系统，已跳过开机自启；手动启动: $INSTALL_DIR/$BIN_NAME -cd $CONF_DIR" ;;
+		*)       warn "未识别的 init 系统，已跳过开机自启；手动启动: $INSTALL_DIR/$BIN_NAME -cd $CONF_DIR${PORT_ARG:+ $PORT_ARG}" ;;
 	esac
 }
 
@@ -637,6 +911,136 @@ remove_service() {
 	fi
 }
 
+# ------------------------------ LuCI 界面 ------------------------------------
+# OpenWrt 上「后端程序」和「LuCI 界面」是两个独立的包。
+# 本脚本主流程故意不依赖包管理器（直接放静态二进制 + 写 procd 脚本），
+# 所以光跑完主流程只有后端，界面得自己再 apk/opkg 装一次 —— 这就是
+# 「装完没有 LuCI」的原因。下面这段把界面补上：
+#   有 LuCI 的系统 → 自动装；纯后端系统 → 跳过（可 --luci 强制）；
+#   --no-luci → 一律不装。
+HAS_LUCI=0
+LUCI_PKG_MGR=""
+LUCI_INSTALLED=0
+
+detect_luci() {
+	HAS_LUCI=0
+	LUCI_PKG_MGR=""
+	[ "$DISTRO" = openwrt ] || return 0
+	# /www/luci-static 是 LuCI 的静态资源目录，比 /etc/config/luci 更可靠
+	if [ -d /www/luci-static ] || [ -f /etc/config/luci ]; then HAS_LUCI=1; fi
+	if have apk; then LUCI_PKG_MGR=apk
+	elif have opkg; then LUCI_PKG_MGR=opkg
+	fi
+}
+
+# luci-base 是界面包的硬依赖，缺了装不上
+luci_base_installed() {
+	case "$LUCI_PKG_MGR" in
+		apk)  apk list --installed luci-base 2>/dev/null | grep -q '^luci-base[- ]' ;;
+		opkg) opkg list-installed 2>/dev/null | grep -q '^luci-base ' ;;
+		*) return 1 ;;
+	esac
+}
+
+install_luci() {
+	[ "$LUCI_MODE" = no ] && { info "按 --no-luci 跳过 LuCI 界面"; return 0; }
+	if [ "$DISTRO" != openwrt ]; then
+		[ "$LUCI_MODE" = yes ] && warn "LuCI 界面只适用于 OpenWrt，已跳过"
+		return 0
+	fi
+	if [ "$USER_INSTALL" = 1 ] || [ "$IS_ROOT" = 0 ]; then
+		info "非 root 安装，跳过 LuCI 界面（装包需要 root）"
+		return 0
+	fi
+	if [ -z "$LUCI_PKG_MGR" ]; then
+		warn "系统里既没有 apk 也没有 opkg，无法安装 LuCI 界面"
+		info "界面包在发布页: luci-app-porch_${VER}_all.apk / .ipk，可手动解压到 /"
+		return 0
+	fi
+	if [ "$HAS_LUCI" = 0 ] && [ "$LUCI_MODE" != yes ]; then
+		info "系统里没检测到 LuCI，跳过界面安装（要装请加 --luci）"
+		return 0
+	fi
+
+	case "$LUCI_PKG_MGR" in
+		apk)  _ext=apk ;;
+		opkg) _ext=ipk ;;
+	esac
+	_lasset="luci-app-porch_${VER}_all.${_ext}"
+	_lfile="$WORK/$_lasset"
+
+	step "安装 LuCI 界面（服务 → Porch 门廊）"
+
+	# 取包：离线模式找同目录，在线模式走同一套镜像
+	if [ "$LOCAL_PKG" = 1 ]; then
+		_lsrc="$(dirname "$PKG_PATH")/$_lasset"
+		if [ ! -f "$_lsrc" ]; then
+			info "本地包旁边没有 $_lasset，跳过 LuCI 界面"
+			info "  单独下载: ${TAG}/${_lasset}"
+			return 0
+		fi
+		cp -f "$_lsrc" "$_lfile" 2>/dev/null || { warn "复制 $_lasset 失败"; return 0; }
+		ok "已读取 $_lasset"
+	else
+		if ! download_asset "$_lasset" "$_lfile"; then
+			warn "没下载到 $_lasset，跳过 LuCI 界面（后端不受影响）"
+			return 0
+		fi
+	fi
+
+	if ! luci_base_installed; then
+		warn "系统里没有 luci-base，界面包装不上（缺硬依赖）"
+		case "$LUCI_PKG_MGR" in
+			apk)  info "先装基础包: apk add luci-base" ;;
+			opkg) info "先装基础包: opkg update && opkg install luci-base" ;;
+		esac
+		info "装好后重跑本脚本即可（配置不会丢）"
+		return 0
+	fi
+
+	if [ "$DRY_RUN" = 1 ]; then
+		info "[dry-run] 会用 $LUCI_PKG_MGR 安装 $_lasset"
+		return 0
+	fi
+
+	# 依赖已在本地，别让 apk 再去联网同步官方源（大陆网络会卡很久）
+	case "$LUCI_PKG_MGR" in
+		apk)  apk add --repositories-file /dev/null --allow-untrusted "$_lfile" ;;
+		opkg) opkg install "$_lfile" ;;
+	esac
+	_rc=$?
+	if [ "$_rc" != 0 ]; then
+		warn "安装 $_lasset 失败（退出码 $_rc）"
+		info "常见原因: ① luci-base 版本不匹配 ② 包管理器正忙（等几秒重试） ③ 空间不足"
+		info "手动重试: $LUCI_PKG_MGR install $_lfile"
+		return 0
+	fi
+
+	# 让新菜单/ACL 立刻生效
+	rm -f /tmp/luci-indexcache* 2>/dev/null || true
+	/etc/init.d/rpcd reload 2>/dev/null || true
+	ok "LuCI 界面已安装"
+	LUCI_INSTALLED=1
+}
+
+# 卸载时把界面包一起摘掉，否则菜单会指向一个不存在的后端
+remove_luci() {
+	[ "$LUCI_INSTALLED" = 1 ] || {
+		# 上次装的、这次没装：只要包在就一并删
+		case "${LUCI_PKG_MGR:-}" in
+			apk)  apk list --installed luci-app-porch 2>/dev/null | grep -q '^luci-app-porch' || return 0 ;;
+			opkg) opkg list-installed 2>/dev/null | grep -q '^luci-app-porch ' || return 0 ;;
+			*) return 0 ;;
+		esac
+	}
+	case "${LUCI_PKG_MGR:-}" in
+		apk)  apk del luci-app-porch 2>/dev/null && ok "已移除 LuCI 界面包" ;;
+		opkg) opkg remove luci-app-porch 2>/dev/null && ok "已移除 LuCI 界面包" ;;
+	esac
+	rm -f /tmp/luci-indexcache* 2>/dev/null || true
+	/etc/init.d/rpcd reload 2>/dev/null || true
+}
+
 # ------------------------------- 检测 ---------------------------------------
 print_env() {
 	step "环境检测"
@@ -648,7 +1052,26 @@ print_env() {
 	info "init 系统: ${INIT_SYS}$([ -n "$PKG_MGR" ] && echo "  包管理器: $PKG_MGR")"
 	info "下载工具: ${DL_TOOL:-未找到}"
 	info "校验工具: ${SHA_TOOL:-未找到（将跳过校验）}"
+	if [ -n "$LUCI_PKG_MGR" ]; then
+		if [ "$HAS_LUCI" = 1 ]; then
+			info "LuCI: 已检测到（装完会一并安装界面包，包管理器 $LUCI_PKG_MGR）"
+		elif [ "$LUCI_MODE" = yes ]; then
+			info "LuCI: 未检测到，但指定了 --luci，仍会尝试安装"
+		else
+			info "LuCI: 未检测到（纯后端环境，加 --luci 可强制装界面）"
+		fi
+	fi
 	info "日志文件: $LOG_FILE"
+	if [ -n "$PORT" ]; then
+		info "管理端口: $PORT"
+	elif [ "$UNINSTALL" = 0 ] && [ "$CHECK_ONLY" = 0 ]; then
+		_pp=$(service_port)
+		if [ -n "$_pp" ]; then
+			info "管理端口: $_pp（沿用现有配置）"
+		else
+			info "管理端口: 待定（默认 $DEFAULT_PORT，稍后可改）"
+		fi
+	fi
 	if [ -n "$INSTALL_DIR" ]; then
 		info "程序目录: $INSTALL_DIR"
 	else
@@ -664,7 +1087,18 @@ detect_pkgmgr
 detect_downloader
 detect_sha
 detect_openwrt_pkg
+
+# 位置参数（兼容 Lucky 官方脚本的传参风格 sh install.sh <URL>）当作自建下载源。
+# 兜底顺序：--mirror > 位置参数/ PORCH_BASE_URL > 默认加速池
+if [ -n "$BASE_URL_ARG" ]; then
+	case "$BASE_URL_ARG" in
+		*://*) PORCH_BASE_URL=$BASE_URL_ARG ;;
+		*) die "下载源地址格式不对: $BASE_URL_ARG" "应以 http:// 或 https:// 开头" ;;
+	esac
+fi
+
 build_mirrors
+detect_luci
 
 # 目录与权限：root 装系统目录，普通用户装 ~/.local
 if [ -z "$INSTALL_DIR" ]; then
@@ -712,15 +1146,48 @@ for cand in "$BIN_PATH" /usr/local/bin/porch /usr/bin/porch; do
 	fi
 done
 
+# 如果 porch 本身是包管理器装的（OpenWrt 上从 ipk/apk 源装的），
+# 用包管理器删更干净：它会顺带清掉 /etc/rc.d/S99porch 软链、conffiles 记录。
+# 本脚本主流程是自己放二进制，不产生包记录，这里查不到就走后面的 rm。
+remove_pkg_porch() {
+	[ "$DRY_RUN" = 1 ] && return 1
+	case "${LUCI_PKG_MGR:-}" in
+		apk)
+			apk list --installed porch 2>/dev/null | grep -q '^porch[- ]' || return 1
+			apk del porch >/dev/null 2>&1 || return 1
+			ok "已用 apk 移除 porch 包"
+			return 0 ;;
+		opkg)
+			opkg list-installed 2>/dev/null | grep -q '^porch ' || return 1
+			opkg remove porch >/dev/null 2>&1 || return 1
+			ok "已用 opkg 移除 porch 包"
+			return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
 do_uninstall() {
 	step "卸载 $PROJECT"
+	detect_luci
+	printf '  将移除: 服务自启项 / 程序二进制 / LuCI 界面包'
+	[ "$PURGE" = 1 ] && printf ' / 配置目录'
+	printf '\n'
+	[ "$PURGE" = 0 ] && info "配置目录会保留；要一起删加 --purge"
+
 	remove_service
-	if [ -n "$CUR_BIN" ] && [ -f "$CUR_BIN" ]; then
+
+	if ! remove_pkg_porch && [ -n "$CUR_BIN" ] && [ -f "$CUR_BIN" ]; then
 		[ "$DRY_RUN" = 1 ] || rm -f "$CUR_BIN"
 		ok "已删除 $CUR_BIN"
-	else
+	elif [ -z "$CUR_BIN" ]; then
 		info "未发现已安装的可执行文件"
 	fi
+
+	# 残留的 pid / launchd 日志
+	[ "$DRY_RUN" = 1 ] || rm -f /var/run/porch.pid 2>/dev/null || true
+	[ "$DRY_RUN" = 1 ] || rm -f /var/log/porch.log /var/log/porch.err 2>/dev/null || true
+
+	remove_luci
 	if [ "$PURGE" = 1 ]; then
 		# 先把本次实际用的配置目录删掉（用户可能用 -c 指到了别处）
 		for d in "$CONF_DIR" /etc/porch "$HOME/.config/porch"; do
@@ -735,6 +1202,7 @@ do_uninstall() {
 		[ -d "$CONF_DIR" ] && info "  配置位于 $CONF_DIR"
 	fi
 	printf '\n%s卸载完成。%s\n' "$C_GRN" "$C_RESET"
+	[ "$PURGE" = 0 ] && printf '  配置仍在 %s，重新装回来会沿用；要彻底清掉: sh install.sh --uninstall --purge\n' "$CONF_DIR"
 	exit 0
 }
 
@@ -797,14 +1265,29 @@ esac
 [ -n "$ASSET" ] || ASSET="${BIN_NAME}_${VER}_${OS}_${ARCH}.tar.gz"
 BASE_URL="https://github.com/$REPO/releases/download"
 
+# 端口不写死：没给 -p 也没 -y 时，在环境检测前问一次，让下面的输出显示最终值
+ask_port
+
 print_env
 info "目标版本: ${C_BLD}v$VER${C_RESET}  目标包: $ASSET"
 
 # 同版本已安装且没 -f：直接收工（幂等，脚本可以重复跑）
 if [ -n "$CUR_VER" ] && [ "$CUR_VER" = "$VER" ] && [ "$FORCE" = 0 ] && [ "$DRY_RUN" = 0 ]; then
-	ok "已是 ${VER}，无需重复安装（重装请加 -f）"
-	if [ -x "$BIN_PATH" ]; then info "程序: $BIN_PATH"; fi
-	info "管理界面: http://<本机IP>:${PORT:-$DEFAULT_PORT}"
+	_cur_port=$(service_port)
+	if [ -z "$PORT" ] || [ "$PORT" = "$_cur_port" ]; then
+		ok "已是 ${VER}，无需重复安装（重装请加 -f）"
+		if [ -x "$BIN_PATH" ]; then info "程序: $BIN_PATH"; fi
+		info "管理界面: http://<本机IP>:${_cur_port:-$DEFAULT_PORT}"
+		info "想换端口: sh install.sh -p 8080   （只改端口，不重新下载）"
+		info "想卸载:   sh install.sh --uninstall"
+		exit 0
+	fi
+	# 版本没变、只是端口变了：只重写服务配置，不重新下载 2.8MB 二进制
+	step "只改管理端口（${_cur_port:-$DEFAULT_PORT} → $PORT）"
+	install_service
+	ok "端口已改为 $PORT"
+	info "管理界面: http://<本机IP>:$PORT"
+	info "已生效的话无需重启；没生效就重启一次服务"
 	exit 0
 fi
 
@@ -854,6 +1337,7 @@ if [ "$LOCAL_PKG" = 1 ]; then
 	fi
 else
 	step "下载"
+	probe_sources
 	info "镜像顺序: $(_mirror_display)"
 
 	download_asset "SHA256SUMS" "$SUMS_FILE" || warn "SHA256SUMS 下载失败，将跳过校验"
@@ -917,6 +1401,7 @@ if [ "$DRY_RUN" = 0 ]; then
 fi
 
 install_service
+install_luci
 
 # ------------------------------- 收尾 ---------------------------------------
 MYIP=""
@@ -925,7 +1410,8 @@ if have ip; then MYIP=$(ip route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-
 [ -z "$MYIP" ] && MYIP="<本机IP>"
 
 step "完成"
-SHOW_PORT=${PORT:-$DEFAULT_PORT}
+SHOW_PORT=${PORT:-$(service_port)}
+[ -n "$SHOW_PORT" ] || SHOW_PORT=$DEFAULT_PORT
 cat <<EOF
 
   ${C_GRN}${C_BLD}Porch 已就绪${C_RESET}
@@ -950,7 +1436,22 @@ case "$INIT_SYS" in
 	launchd) [ "$NO_SERVICE" = 0 ] && printf '    launchctl list | grep porch      查看服务状态\n    tail -f /var/log/porch.log       跟踪日志\n\n' ;;
 esac
 
-[ -n "$PKG_HINT" ] && printf '  包管理器   %s —— 本脚本不依赖它（直接放静态二进制）\n            想用 apk/opkg 装请看 docs/INSTALL.md 的 OpenWrt 一节\n\n' "$PKG_HINT"
+_extra_done=0
+if [ -n "$PKG_HINT" ]; then
+	printf '  包管理器   %s\n' "$PKG_HINT"
+	_extra_done=1
+fi
+if [ "$LUCI_INSTALLED" = 1 ]; then
+	printf '  LuCI 界面  已安装 → 路由器后台「服务 → Porch 门廊」\n'
+	_extra_done=1
+elif [ -n "$LUCI_PKG_MGR" ] && [ "$LUCI_MODE" != no ]; then
+	if [ "$HAS_LUCI" = 1 ]; then _why="下载或依赖失败，重跑本脚本即可"; else _why="系统里没有 LuCI，加 --luci 可强制装"; fi
+	printf '  LuCI 界面  %s未安装%s（%s）\n' "$C_YEL" "$C_RESET" "$_why"
+	printf '             手动装: %s install <发布页>/luci-app-porch_%s_all.%s\n' \
+		"$LUCI_PKG_MGR" "$VER" "$([ "$LUCI_PKG_MGR" = apk ] && echo apk || echo ipk)"
+	_extra_done=1
+fi
+[ "$_extra_done" = 1 ] && printf '\n'
 
 # 用户目录安装时提醒 PATH——否则装完敲 porch 会 command not found
 case ":$PATH:" in
@@ -963,7 +1464,9 @@ esac
 
 cat <<EOF
   升级  重新执行本脚本即可（配置自动保留）
-  卸载  sh install.sh --uninstall           （加 --purge 连配置一起删）
+  改端口  sh install.sh -p 8080              只改端口，不重新下载二进制
+  卸载  sh install.sh --uninstall          服务 + 程序 + LuCI 界面包，配置保留
+        sh install.sh --uninstall --purge  连配置目录一起删（不可恢复）
 
   下一步（不用看文档也能走完）
     1. 浏览器打开上面的地址，登录后到「动态域名」加一条任务

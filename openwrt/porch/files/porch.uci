@@ -3,4 +3,3 @@ config porch 'main'
 	option config_dir '/etc/porch/porchconf'
 	# 留空则使用程序配置中的端口（默认 16601）
 	option port ''
-	option allow_internet '0'

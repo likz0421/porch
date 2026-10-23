@@ -4,6 +4,8 @@
 #  用法（PowerShell 5.1 或 7+）:
 #    irm https://raw.githubusercontent.com/likz0421/porch/main/install.ps1 | iex
 #    .\install.ps1 -Version 1.1.0
+#    .\install.ps1 -Port 8080            装的时候指定管理端口（不给就交互问一次）
+#    .\install.ps1 -Probe                先给每个加速站测速再下载（大陆网络推荐）
 #    .\install.ps1 -File .\porch_1.1.0_windows_x86_64.zip   离线安装（不联网）
 #    .\install.ps1 -Check                只做环境检测
 #    .\install.ps1 -Uninstall            卸载（加 -Purge 连配置一起删）
@@ -19,6 +21,7 @@ param(
     [int]$Port = 0,
     [string]$Mirror = "",
     [string]$File = "",
+    [switch]$Probe,
     [switch]$NoPath,
     [switch]$Uninstall,
     [switch]$Purge,
@@ -33,6 +36,8 @@ $ProgressPreference = 'SilentlyContinue'
 $Repo = if ($env:PORCH_REPO) { $env:PORCH_REPO } else { 'likz0421/porch' }
 $BinName = 'porch'
 $DefaultPort = 16601
+$Base = "https://github.com/$Repo/releases/download"
+$script:MirrorOrder = $null
 
 # ---------------------------- 输出 ----------------------------
 function Write-Step($msg) { Write-Host ""; Write-Host "==> $msg" -ForegroundColor Cyan }
@@ -80,7 +85,8 @@ function Get-LatestTag {
     } catch { }
 
     # 2) 走公共加速再问一次 API
-    foreach ($p in @('https://ghfast.top/', 'https://gh-proxy.com/', 'https://ghproxy.net/')) {
+    foreach ($p in (Get-MirrorList)) {
+        if (-not $p) { continue }
         try {
             $r = Invoke-RestMethod -Uri "$p$api" -UseBasicParsing -TimeoutSec 20 -Headers @{ 'User-Agent' = 'porch-installer' }
             if ($r.tag_name) { return $r.tag_name }
@@ -114,30 +120,113 @@ function Get-MirrorList {
     return @('', 'https://ghfast.top/', 'https://gh-proxy.com/', 'https://ghproxy.net/')
 }
 
-function Save-File($Url, $Dest) {
+# 单个镜像测速：只取 SHA256SUMS 的前 1KB，够判断能不能用 + 有多快
+function Measure-Mirror($Prefix) {
+    $probeUrl = "$Prefix$Base/$Tag/SHA256SUMS"
+    $tmp = Join-Path $env:TEMP ("porch-probe-" + [Guid]::NewGuid().ToString('N'))
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        Invoke-WebRequest -Uri $probeUrl -OutFile $tmp -UseBasicParsing -TimeoutSec 12 `
+            -Headers @{ 'User-Agent' = 'porch-installer'; 'Range' = 'bytes=0-1023' } | Out-Null
+        $sw.Stop()
+        return [double]$sw.Elapsed.TotalSeconds
+    } catch {
+        return [double]9999
+    } finally {
+        if (Test-Path $tmp) { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# 镜像顺序：-Probe 时按实测耗时排序，死源直接排除；不加就按原顺序
+function Get-MirrorOrder {
+    if ($script:MirrorOrder) { return $script:MirrorOrder }
+    $list = Get-MirrorList
+    if (-not $Probe) { $script:MirrorOrder = $list; return $list }
+
+    Write-Info '给镜像测速（每个只取 1KB，十几秒出结果）…'
+    $scored = foreach ($p in $list) {
+        $t = Measure-Mirror $p
+        $name = if ($p) { ([Uri]$p).Host } else { '直连' }
+        if ($t -ge 9999) { Write-Warn2 "$name 连不上，跳过" }
+        else { Write-Info ("{0}  {1:N2}s" -f $name, $t) }
+        [pscustomobject]@{ Prefix = $p; Time = $t }
+    }
+    $ordered = @($scored | Sort-Object Time | Where-Object { $_.Time -lt 9999 } | ForEach-Object { $_.Prefix })
+    if ($ordered.Count -eq 0) { $ordered = $list }
+    $script:MirrorOrder = $ordered
+    return $ordered
+}
+
+# 端口不写死：写进程序配置 base.json（唯一来源），以后在网页里改端口才有效
+function Set-ConfigPort($p) {
+    if (-not (Test-Path $ConfDir)) { New-Item -ItemType Directory -Path $ConfDir -Force | Out-Null }
+    $bj = Join-Path $ConfDir 'base.json'
+    $obj = $null
+    if (Test-Path $bj) {
+        try { $obj = Get-Content $bj -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $obj = $null }
+    }
+    if (-not $obj) { $obj = [pscustomobject]@{} }
+    if ($obj.PSObject.Properties.Name -contains 'adminWebListenPort') { $obj.adminWebListenPort = $p }
+    else { $obj | Add-Member -NotePropertyName 'adminWebListenPort' -NotePropertyValue $p }
+    # 必须写无 BOM 的 UTF-8：带 BOM 时 Go 的 json 解析会直接报错
+    $json = $obj | ConvertTo-Json -Depth 20
+    [System.IO.File]::WriteAllText($bj, $json, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Ok "管理端口已写入 base.json: $p"
+}
+
+# 读回当前生效端口（没配过就返回 0）
+function Get-ConfigPort {
+    $bj = Join-Path $ConfDir 'base.json'
+    if (-not (Test-Path $bj)) { return 0 }
+    try {
+        $o = Get-Content $bj -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($o.PSObject.Properties.Name -contains 'adminWebListenPort') { return [int]$o.adminWebListenPort }
+    } catch { }
+    return 0
+}
+
+function Save-File($Url, $Dest, $TimeoutSec = 300) {
     $tmp = "$Dest.part"
     if (Test-Path $tmp) { Remove-Item $tmp -Force }
-    Invoke-WebRequest -Uri $Url -OutFile $tmp -UseBasicParsing -TimeoutSec 300 -Headers @{ 'User-Agent' = 'porch-installer' }
+    Invoke-WebRequest -Uri $Url -OutFile $tmp -UseBasicParsing -TimeoutSec $TimeoutSec -Headers @{ 'User-Agent' = 'porch-installer' }
     Move-Item -Force $tmp $Dest
 }
 
+# 两轮下载：
+#   第 1 轮每个镜像只试 1 次、超时给短——死源 20 秒就放过，不在这儿干等；
+#   第 2 轮才对失败过的镜像重试（网络抖动一次就废掉整个源不合理）。
 function Get-Asset($Name, $Dest) {
-    $base = "https://github.com/$Repo/releases/download"
-    foreach ($prefix in (Get-MirrorList)) {
-        $url = "$prefix$base/$Tag/$Name"
-        $srvHost = ([Uri]$url).Host
-        for ($i = 1; $i -le 3; $i++) {
+    $order = @(Get-MirrorOrder)
+    $failed = @()
+
+    foreach ($prefix in $order) {
+        $url = "$prefix$Base/$Tag/$Name"
+        $srvHost = if ($prefix) { ([Uri]$prefix).Host } else { '直连' }
+        try {
+            Write-Info "下载 $Name  <- $srvHost"
+            Save-File $url $Dest 25
+            Write-Ok "下载完成（$([math]::Round((Get-Item $Dest).Length / 1MB, 2)) MB）"
+            return $true
+        } catch {
+            Write-Warn2 "$srvHost 不通: $($_.Exception.Message.Split("`n")[0])"
+            $failed += $prefix
+        }
+    }
+
+    foreach ($prefix in $failed) {
+        $url = "$prefix$Base/$Tag/$Name"
+        $srvHost = if ($prefix) { ([Uri]$prefix).Host } else { '直连' }
+        for ($i = 1; $i -le 2; $i++) {
             try {
-                Write-Info "下载 $Name  <- $srvHost （第 $i 次）"
-                Save-File $url $Dest
+                Write-Info "重试 $Name  <- $srvHost （第 $i 次）"
+                Save-File $url $Dest 300
                 Write-Ok "下载完成（$([math]::Round((Get-Item $Dest).Length / 1MB, 2)) MB）"
                 return $true
             } catch {
-                Write-Warn2 "$srvHost 第 $i 次失败: $($_.Exception.Message.Split("`n")[0])"
-                Start-Sleep -Seconds $i
+                Write-Warn2 "$srvHost 第 $i 次仍失败: $($_.Exception.Message.Split("`n")[0])"
+                Start-Sleep -Seconds 2
             }
         }
-        Write-Warn2 "镜像 $srvHost 不可用，换下一个"
     }
     return $false
 }
@@ -145,6 +234,7 @@ function Get-Asset($Name, $Dest) {
 # ---------------------------- 卸载 ----------------------------
 if ($Uninstall) {
     Write-Step '卸载 Porch'
+    Write-Info '将移除: 运行中的进程 / 程序文件 / 用户 PATH 里的安装目录'
     Get-Process $BinName -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
     if (Test-Path $BinPath) { Remove-Item $BinPath -Force; Write-Ok "已删除 $BinPath" }
 
@@ -168,6 +258,9 @@ if ($Uninstall) {
     }
     Write-Host ""
     Write-Host '卸载完成。' -ForegroundColor Green
+    if (-not $Purge -and (Test-Path (Split-Path $ConfDir -Parent))) {
+        Write-Host "  配置仍在 $(Split-Path $ConfDir -Parent)，重新装回来会沿用；彻底清掉加 -Purge" -ForegroundColor DarkGray
+    }
     exit 0
 }
 
@@ -178,6 +271,10 @@ Write-Info "用户: $env:USERNAME$(if ($IsAdmin) { '（管理员）' } else { '�
 Write-Info "程序目录: $Dir"
 Write-Info "配置目录: $ConfDir"
 Write-Info "PowerShell: $($PSVersionTable.PSVersion)"
+$InstalledPort = Get-ConfigPort
+if ($Port -gt 0) { Write-Info "管理端口: $Port（由 -Port 指定）" }
+elseif ($InstalledPort -gt 0) { Write-Info "管理端口: $InstalledPort（沿用现有配置）" }
+else { Write-Info "管理端口: 待定（默认 $DefaultPort，稍后可改）" }
 
 $CurVer = $null
 if (Test-Path $BinPath) {
@@ -195,6 +292,21 @@ if ($Check) {
     Write-Host ""
     Write-Host '环境检测完成，未做任何修改。' -ForegroundColor DarkGray
     exit 0
+}
+
+# 端口不写死：既没给 -Port、又没 -Yes（无人值守）、还在真终端里，就问一次
+if ($Port -le 0 -and -not $Yes -and $Host.Name -eq 'ConsoleHost') {
+    $defShow = if ($InstalledPort -gt 0) { $InstalledPort } else { $DefaultPort }
+    $ans = Read-Host "  管理端口（回车用 $defShow）"
+    if ($ans) {
+        $n = 0
+        if ([int]::TryParse($ans.Trim(), [ref]$n) -and $n -ge 1 -and $n -le 65535) {
+            $Port = $n
+            Write-Ok "管理端口: $Port"
+        } else {
+            Write-Warn2 "端口无效（要 1-65535 的整数），改用 $defShow"
+        }
+    }
 }
 
 # ---------------------------- 版本 ----------------------------
@@ -300,6 +412,7 @@ try {
     Write-Ok "自检通过: $out"
 
     New-Item -ItemType Directory -Path $ConfDir -Force | Out-Null
+    if ($Port -gt 0) { Set-ConfigPort $Port }
 
     if (-not $NoPath) {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
@@ -319,7 +432,8 @@ Write-Step '完成'
 Write-Host ""
 Write-Host '  Porch 已就绪' -ForegroundColor Green
 Write-Host ''
-$ShowPort = if ($Port -gt 0) { $Port } else { $DefaultPort }
+$ShowPort = if ($Port -gt 0) { $Port } else { Get-ConfigPort }
+if ($ShowPort -le 0) { $ShowPort = $DefaultPort }
 Write-Host "  管理界面   http://127.0.0.1:$ShowPort"
 Write-Host "  默认账号   666 / 666   （登录后第一件事：系统设置 -> 改掉密码）" -ForegroundColor Yellow
 Write-Host "  程序       $BinPath"
@@ -334,7 +448,9 @@ Write-Host "    1) 把快捷方式放进 shell:startup"
 Write-Host "    2) 用 NSSM / WinSW 注册成 Windows 服务"
 Write-Host ''
 Write-Host '  升级  重新执行本脚本即可（配置自动保留）'
-Write-Host '  卸载  .\install.ps1 -Uninstall         （加 -Purge 连配置一起删）'
+Write-Host '  改端口 .\install.ps1 -Port 8080        （写进配置，以后在网页里也能改）'
+Write-Host '  卸载  .\install.ps1 -Uninstall            程序 + PATH，配置保留'
+Write-Host '        .\install.ps1 -Uninstall -Purge     连配置目录一起删（不可恢复）'
 Write-Host ''
 Write-Host '  下一步（不用看文档也能走完）'
 Write-Host '    1. 打开上面的地址，登录后到「动态域名」加一条任务'
