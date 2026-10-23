@@ -5,7 +5,7 @@
 #  支持: Linux（含 OpenWrt / 各发行版）/ macOS / FreeBSD
 #        CPU: x86_64 i386 arm64 armv7 armv6 armv5 mips mipsle riscv64
 #  用法: sh install.sh                 安装最新版
-#        sh install.sh -v 1.1.1        安装指定版本
+#        sh install.sh -v 1.1.2        安装指定版本
 #        sh install.sh --check         只做环境检测，不安装
 #        sh install.sh --uninstall     卸载
 #        sh install.sh -h              完整参数
@@ -94,12 +94,13 @@ Porch 门廊 · 一键在线安装
 
 最常用
   sh install.sh                    安装 / 升级到最新版（已有配置保留）
+                                   已装过会先问：升级 / 重装 / 改端口 / 卸载
   sh install.sh -p 8080            安装时指定管理端口（不给就交互问一次）
   sh install.sh --uninstall        卸载程序与服务，配置保留
   sh install.sh --uninstall --purge   卸载并连配置一起删（不可恢复）
 
 选项
-  -v, --version VER    安装指定版本（如 1.1.1 或 v1.1.1；默认最新）
+  -v, --version VER    安装指定版本（如 1.1.2 或 v1.1.2；默认最新）
   -d, --dir DIR        程序安装目录（默认 /usr/local/bin）
   -c, --conf DIR       配置目录（默认 /etc/porch/porchconf）
   -p, --port PORT      管理端口（默认 5200；安装时不给会交互问一次，回车即默认）
@@ -128,14 +129,15 @@ Porch 门廊 · 一键在线安装
 
 OpenWrt 说明: 检测到系统里有 LuCI 时，会顺带把「服务 → Porch 门廊」界面装上；
               纯后端环境（无 LuCI）默认跳过，要强制装加 --luci。
+              装完菜单没出现就 Ctrl+F5 强刷浏览器（LuCI 会缓存菜单树）。
 
 示例:
   curl -fsSL https://raw.githubusercontent.com/likz0421/porch/main/install.sh | sh
   sh install.sh --probe            # 大陆网络：先测速再下载
-  sh install.sh -v 1.1.1 --mirror ",https://ghfast.top/"
+  sh install.sh -v 1.1.2 --mirror ",https://ghfast.top/"
   sh install.sh http://your-mirror.host   # 自建源（兼容 Lucky 脚本的传参风格）
   sh install.sh --check
-  sh install.sh --file ./porch_1.1.1_linux_x86_64.tar.gz
+  sh install.sh --file ./porch_1.1.2_linux_x86_64.tar.gz
   sh install.sh --uninstall --purge
 
 大陆网络拉不下这个脚本本身时，先把 GitHub 地址套一层加速：
@@ -725,6 +727,7 @@ apply_port() {
 # 注意 curl|sh 时 stdin 是脚本管道，必须从 /dev/tty 读，否则读不到用户输入。
 ask_port() {
 	[ -n "$PORT" ] && return 0
+	[ -z "$CUR_VER" ] || return 0    # 已装过：升级沿用现有端口，别每次升级都问
 	[ "$ASSUME_YES" = 0 ] || return 0
 	[ "$DRY_RUN" = 0 ] || return 0
 	[ "$CHECK_ONLY" = 0 ] || return 0
@@ -745,6 +748,56 @@ ask_port() {
 	fi
 	PORT="$_ap"
 	ok "管理端口: $PORT"
+}
+
+# 已装过再跑脚本：别猜用户想干嘛，当面问（参考 Lucky 官方脚本的交互菜单）。
+# 无人值守场景不受影响：-y / --file / -f / -v 都是明确意图，直接跳过菜单。
+main_menu() {
+	[ "$ASSUME_YES" = 0 ] || return 0
+	[ -n "$CUR_VER" ] || return 0
+	[ "$DRY_RUN" = 0 ] || return 0
+	[ "$CHECK_ONLY" = 0 ] || return 0
+	[ "$UNINSTALL" = 0 ] || return 0
+	[ "$FORCE" = 0 ] || return 0
+	[ -z "$PKG_PATH" ] || return 0
+	[ -n "$VERSION_ARG" ] && [ "$VERSION_ARG" != latest ] && return 0
+	[ -r /dev/tty ] && [ -w /dev/tty ] || return 0
+
+	printf '\n  检测到已安装 Porch %s  (%s)\n' "$CUR_VER" "$BIN_PATH"
+	_cur_port=$(service_port)
+	info "当前管理端口: ${_cur_port:-$DEFAULT_PORT}   最新版本: v$VER"
+	printf '\n'
+	printf '  1) 升级到最新版 v%s\n' "$VER"
+	printf '  2) 重装当前版本 %s（配置保留）\n' "$CUR_VER"
+	printf '  3) 只改管理端口\n'
+	printf '  4) 卸载（保留配置）\n'
+	printf '  5) 卸载并删除配置\n'
+	printf '  0) 什么都不做，退出\n'
+	printf '  选择 [回车=1]: '
+	_m=""
+	IFS= read -r _m </dev/tty || _m=""
+	case "$_m" in
+		''|1) return 0 ;;
+		2) FORCE=1; ok "将重装当前版本"; return 0 ;;
+		3)
+			_ap=""
+			printf '  新管理端口（1-65535，回车取消）: ' >/dev/tty
+			IFS= read -r _ap </dev/tty || _ap=""
+			case "$_ap" in
+				'') info "未改端口"; exit 0 ;;
+				*[!0-9]*) die "端口只能是数字: $_ap" ;;
+			esac
+			[ "$_ap" -ge 1 ] 2>/dev/null && [ "$_ap" -le 65535 ] 2>/dev/null || die "端口超出 1-65535: $_ap"
+			PORT="$_ap"
+			step "只改管理端口（${_cur_port:-$DEFAULT_PORT} → ${PORT}）"
+			install_service
+			ok "端口已改为 $PORT"
+			exit 0 ;;
+		4) UNINSTALL=1; do_uninstall ;;
+		5) PURGE=1; UNINSTALL=1; do_uninstall ;;
+		0|q|Q) info "已退出，未做任何修改"; exit 0 ;;
+		*) warn "无效选择「${_m}」，按升级继续"; return 0 ;;
+	esac
 }
 
 # ------------------------------- 服务 ---------------------------------------
@@ -1028,12 +1081,18 @@ install_luci() {
 		return 0
 	fi
 
-	# 依赖已在本地，别让 apk 再去联网同步官方源（大陆网络会卡很久）
+	# 依赖已在本地，别让 apk 再去联网同步官方源（大陆网络会卡很久）。
+	# 第一遍正常装；失败退到「忽略缺失依赖」——一键脚本装的 porch 不在
+	# 包管理器数据库里，老版本界面包把 porch 写进依赖时会在这里被卡住。
 	case "$LUCI_PKG_MGR" in
-		apk)  apk add --repositories-file /dev/null --allow-untrusted "$_lfile" ;;
-		opkg) opkg install "$_lfile" ;;
+		apk)
+			apk add --repositories-file /dev/null --allow-untrusted "$_lfile" 2>/dev/null || \
+			apk add --repositories-file /dev/null --allow-untrusted --force-broken-world "$_lfile"
+			_rc=$? ;;
+		opkg)
+			opkg install "$_lfile" 2>/dev/null || opkg install --force-depends "$_lfile"
+			_rc=$? ;;
 	esac
-	_rc=$?
 	if [ "$_rc" != 0 ]; then
 		warn "安装 $_lasset 失败（退出码 ${_rc}）"
 		info "常见原因: ① luci-base 版本不匹配 ② 包管理器正忙（等几秒重试） ③ 空间不足"
@@ -1050,18 +1109,37 @@ install_luci() {
 
 # 卸载时把界面包一起摘掉，否则菜单会指向一个不存在的后端
 remove_luci() {
-	[ "$LUCI_INSTALLED" = 1 ] || {
+	_luci_gone=0
+	if [ "$LUCI_INSTALLED" != 1 ]; then
 		# 上次装的、这次没装：只要包在就一并删
 		case "${LUCI_PKG_MGR:-}" in
-			apk)  apk list --installed luci-app-porch 2>/dev/null | grep -q '^luci-app-porch' || return 0 ;;
-			opkg) opkg list-installed 2>/dev/null | grep -q '^luci-app-porch ' || return 0 ;;
-			*) return 0 ;;
+			apk)  apk list --installed luci-app-porch 2>/dev/null | grep -q '^luci-app-porch' || _luci_gone=1 ;;
+			opkg) opkg list-installed 2>/dev/null | grep -q '^luci-app-porch ' || _luci_gone=1 ;;
+			*)    _luci_gone=1 ;;
 		esac
-	}
-	case "${LUCI_PKG_MGR:-}" in
-		apk)  apk del luci-app-porch 2>/dev/null && ok "已移除 LuCI 界面包" ;;
-		opkg) opkg remove luci-app-porch 2>/dev/null && ok "已移除 LuCI 界面包" ;;
-	esac
+	fi
+
+	if [ "$_luci_gone" != 1 ]; then
+		case "${LUCI_PKG_MGR:-}" in
+			apk)  apk del luci-app-porch 2>/dev/null && ok "已移除 LuCI 界面包" ;;
+			opkg) opkg remove luci-app-porch 2>/dev/null && ok "已移除 LuCI 界面包" ;;
+		esac
+	fi
+
+	# 硬删兜底：包管理器删失败 / 记账不一致 / 手动解压装的情况，
+	# 把界面文件按清单直接摘掉，保证「卸载完菜单里真的没有」
+	if [ -e /usr/share/luci/menu.d/luci-app-porch.json ] || \
+	   [ -e /www/luci-static/resources/view/porch ]; then
+		rm -f /usr/share/luci/menu.d/luci-app-porch.json \
+		      /usr/share/rpcd/acl.d/luci-app-porch.json \
+		      /usr/libexec/rpcd/porch \
+		      /www/luci-static/resources/view/porch/status.js \
+		      /www/luci-static/resources/view/porch/settings.js 2>/dev/null || true
+		rmdir /www/luci-static/resources/view/porch \
+		      /usr/share/luci/menu.d /usr/share/rpcd/acl.d 2>/dev/null || true
+		ok "已清除 LuCI 界面残留文件"
+	fi
+
 	rm -f /tmp/luci-indexcache* 2>/dev/null || true
 	/etc/init.d/rpcd reload 2>/dev/null || true
 }
@@ -1201,6 +1279,10 @@ do_uninstall() {
 
 	remove_service
 
+	# 先摘 LuCI 界面包再删后端：老版本界面包依赖 porch，
+	# 顺序反了会被包管理器以 "not removed due to: luci-app-porch" 拒绝
+	remove_luci
+
 	if ! remove_pkg_porch && [ -n "$CUR_BIN" ] && [ -f "$CUR_BIN" ]; then
 		[ "$DRY_RUN" = 1 ] || rm -f "$CUR_BIN"
 		ok "已删除 $CUR_BIN"
@@ -1212,7 +1294,6 @@ do_uninstall() {
 	[ "$DRY_RUN" = 1 ] || rm -f /var/run/porch.pid 2>/dev/null || true
 	[ "$DRY_RUN" = 1 ] || rm -f /var/log/porch.log /var/log/porch.err 2>/dev/null || true
 
-	remove_luci
 	if [ "$PURGE" = 1 ]; then
 		# 先把本次实际用的配置目录删掉（用户可能用 -c 指到了别处）
 		for d in "$CONF_DIR" /etc/porch "$HOME/.config/porch"; do
@@ -1248,7 +1329,7 @@ if [ -n "$PKG_PATH" ]; then
 	_f_ver=$(printf '%s' "$_pkg_name" | sed -n 's/^porch_\([0-9][0-9A-Za-z.]*\)_.*\.tar\.gz$/\1/p')
 	if [ -z "$_f_ver" ]; then
 		[ -n "$VERSION_ARG" ] || die "无法从文件名识别版本: $_pkg_name" \
-			"文件名应形如 porch_1.1.1_linux_x86_64.tar.gz；或用 -v 1.1.1 明确指定版本"
+			"文件名应形如 porch_1.1.2_linux_x86_64.tar.gz；或用 -v 1.1.2 明确指定版本"
 		_f_ver=${VERSION_ARG#v}
 	fi
 	VER=$_f_ver
@@ -1274,7 +1355,7 @@ else
 		# 已经装好了就别因为查不到版本号而中断——用户可能只是确认一下
 		if [ -n "$CUR_VER" ]; then
 			warn "查不到最新版本（网络受限）；当前已安装 ${CUR_VER}，未做任何修改"
-			info "要装指定版本: sh install.sh -v 1.1.1"
+			info "要装指定版本: sh install.sh -v 1.1.2"
 			exit 0
 		fi
 		die "拿不到最新版本号" "网络可能被限制：用 -v 指定版本，或加 --mirror 指定镜像"
@@ -1284,11 +1365,14 @@ else
 fi
 
 case "$VER" in
-	''|*[!0-9.]*) die "版本号格式不对: ${VERSION_ARG:-$VER}" "示例: -v 1.1.1" ;;
+	''|*[!0-9.]*) die "版本号格式不对: ${VERSION_ARG:-$VER}" "示例: -v 1.1.2" ;;
 esac
 
 [ -n "$ASSET" ] || ASSET="${BIN_NAME}_${VER}_${OS}_${ARCH}.tar.gz"
 BASE_URL="https://github.com/$REPO/releases/download"
+
+# 已装过的机器：先问清楚要升级、重装、改端口还是卸载，别自作主张
+main_menu
 
 # 端口不写死：没给 -p 也没 -y 时，在环境检测前问一次，让下面的输出显示最终值
 ask_port
@@ -1430,7 +1514,7 @@ install_luci
 
 # ------------------------------- 收尾 ---------------------------------------
 MYIP=""
-if have ip; then MYIP=$(ip route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1); fi
+if have ip; then MYIP=$(ip route get 1.1.2.1 2>/dev/null | sed -n 's/.*src \([0-9.]*\).*/\1/p' | head -1); fi
 [ -z "$MYIP" ] && MYIP=$(hostname -i 2>/dev/null | awk '{print $1}')
 [ -z "$MYIP" ] && MYIP="<本机IP>"
 

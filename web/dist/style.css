@@ -305,6 +305,12 @@ body {
 .stat-grid { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
 .monitor-grid { display: grid; gap: var(--gap); grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
 
+/* 网格子项允许收缩到 0：不写这条，卡片里的长域名/长表格会把网格列撑到比视口还宽，
+   整页横向溢出——「排版溢出」的主因就是它 */
+.grid > *, .grid-2 > *, .grid-3 > *, .grid-auto > *,
+.stat-grid > *, .monitor-grid > * { min-width: 0; }
+.card { min-width: 0; }
+
 .stat {
   background: var(--glass);
   backdrop-filter: var(--blur-sm);
@@ -320,12 +326,15 @@ body {
 .stat:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
 .stat .label { font-size: 12px; color: var(--text-3); display: flex; align-items: center; gap: 6px; }
 .stat .value {
-  font-size: clamp(20px, 2vw, 26px);
+  font-size: clamp(18px, 1.7vw, 24px);
   font-weight: 700;
   margin-top: 6px;
-  letter-spacing: -.5px;
-  line-height: 1.2;
+  letter-spacing: -.3px;
+  line-height: 1.25;
   word-break: break-word;
+  overflow-wrap: anywhere;
+  /* 等宽数字：数值跳动时宽度稳定，不再左右晃 */
+  font-variant-numeric: tabular-nums;
 }
 .stat .hint { font-size: 11.5px; color: var(--text-3); margin-top: 2px; }
 .stat::after {
@@ -341,10 +350,11 @@ body {
 /* ============================ 监控图表 ============================ */
 
 .chart-card { display: flex; flex-direction: column; }
-.chart-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
-.chart-head h2 { font-size: 13.5px; font-weight: 650; color: var(--text-2); }
+/* center 对齐：baseline 会让 svg 图标和中文标题/数值基线错位，看起来「字没对齐」 */
+.chart-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.chart-head h2 { font-size: 13.5px; font-weight: 650; color: var(--text-2); line-height: 1; }
 .chart-head .big { margin-left: auto; display: flex; align-items: baseline; gap: 6px; }
-.chart-head .big b { font-size: clamp(20px, 2.1vw, 26px); font-weight: 700; letter-spacing: -.5px; }
+.chart-head .big b { font-size: clamp(20px, 2.1vw, 26px); font-weight: 700; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
 .chart-head .big span { font-size: 11.5px; color: var(--text-3); }
 .chart-canvas { width: 100%; height: 148px; display: block; border-radius: 10px; }
 .chart-foot { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--text-3); margin-top: 6px; }
@@ -541,7 +551,14 @@ thead th {
   backdrop-filter: blur(6px);
   z-index: 1;
 }
-tbody td { padding: 10px; border-bottom: 1px solid rgba(30, 45, 70, .05); vertical-align: middle; }
+tbody td {
+  padding: 10px;
+  border-bottom: 1px solid rgba(30, 45, 70, .05);
+  vertical-align: middle;
+  /* 长域名 / 长 IPv6 / 失败原因不再把表格撑出卡片 */
+  overflow-wrap: break-word;
+  font-variant-numeric: tabular-nums;
+}
 tbody tr { transition: background var(--transition); }
 tbody tr:hover { background: rgba(255, 255, 255, .5); }
 tbody tr:last-child td { border-bottom: none; }

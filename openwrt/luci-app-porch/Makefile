@@ -6,7 +6,7 @@ LUCI_DEPENDS:=+porch +luci-base
 LUCI_EXTRA_DEPENDS:=
 
 PKG_NAME:=luci-app-porch
-PKG_VERSION:=1.1.1
+PKG_VERSION:=1.1.2
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=Porch contributors <porch@users.noreply.github.com>

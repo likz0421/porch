@@ -36,13 +36,13 @@ irm https://raw.githubusercontent.com/likz0421/porch/main/install.ps1 | iex
   系统: Linux (openwrt 23.05.3)  架构: mipsel → mipsle_hardfloat
   ...
 ==> 下载
-  下载 porch_1.1.1_linux_mipsle_hardfloat.tar.gz  ← github.com（第 1 次）
+  下载 porch_1.1.2_linux_mipsle_hardfloat.tar.gz  ← github.com（第 1 次）
   ✓ 下载完成 2.9M
   ✓ 校验和一致 3f9c1a2b…
 ==> 解包与自检
-  ✓ 自检通过: porch 1.1.1 (release) linux/mipsle
+  ✓ 自检通过: porch 1.1.2 (release) linux/mipsle
 ==> 安装
-  ✓ 已安装: 1.1.1  →  /usr/bin/porch
+  ✓ 已安装: 1.1.2  →  /usr/bin/porch
   ✓ procd 服务已启用: /etc/init.d/porch
 ```
 
@@ -80,7 +80,7 @@ sh install.sh -h
 
 | 参数 | 说明 |
 |---|---|
-| `-v, --version VER` | 安装指定版本，如 `1.1.1` 或 `v1.1.1`；默认最新 |
+| `-v, --version VER` | 安装指定版本，如 `1.1.2` 或 `v1.1.2`；默认最新 |
 | `-d, --dir DIR` | 程序安装目录，默认 `/usr/local/bin`（OpenWrt 自动用 `/usr/bin`）|
 | `-c, --conf DIR` | 配置目录，默认 `/etc/porch/porchconf` |
 | `-p, --port PORT` | 管理端口，默认 `5200`。**不给会交互问一次**（回车即默认）|
@@ -120,7 +120,7 @@ sh install.sh -p 8080        # 安装时装；已装过就只改端口，不重�
 环境变量（适合写进 Ansible / 批量脚本）：
 
 ```sh
-PORCH_VERSION=1.1.1 PORCH_DIR=/opt/porch/bin PORCH_MIRROR=",https://ghfast.top/" sh install.sh -y
+PORCH_VERSION=1.1.2 PORCH_DIR=/opt/porch/bin PORCH_MIRROR=",https://ghfast.top/" sh install.sh -y
 ```
 
 | 变量 | 作用 |
@@ -181,8 +181,8 @@ wget -qO- https://raw.githubusercontent.com/likz0421/porch/main/install.sh | sh
 **方式二：apk 装（OpenWrt 25.12+）**
 
 ```sh
-apk add --repositories-file /dev/null --allow-untrusted /tmp/porch_1.1.1_openwrt_arm64.apk
-apk add --repositories-file /dev/null --allow-untrusted /tmp/luci-app-porch_1.1.1_all.apk   # 想要 LuCI 界面
+apk add --repositories-file /dev/null --allow-untrusted /tmp/porch_1.1.2_openwrt_arm64.apk
+apk add --repositories-file /dev/null --allow-untrusted /tmp/luci-app-porch_1.1.2_all.apk   # 想要 LuCI 界面
 ```
 
 > 文件名里的架构后缀是 **Go 的架构名**（`arm64` / `armv7` / `mipsle_hardfloat`…），
@@ -197,8 +197,8 @@ apk add --repositories-file /dev/null --allow-untrusted /tmp/luci-app-porch_1.1.
 **方式三：opkg 装（OpenWrt 24.10 及更早）**
 
 ```sh
-opkg install porch_1.1.1_openwrt_mipsle_hardfloat.ipk
-opkg install luci-app-porch_1.1.1_all.ipk     # 想要 LuCI 界面时再装这个
+opkg install porch_1.1.2_openwrt_mipsle_hardfloat.ipk
+opkg install luci-app-porch_1.1.2_all.ipk     # 想要 LuCI 界面时再装这个
 ```
 
 ipk 的 `Architecture`、apk 的 `arch` 都写的是 `all` / `noarch`（与上游 Lucky 一致），
@@ -208,8 +208,8 @@ ipk 的 `Architecture`、apk 的 `arch` 都写的是 `all` / `noarch`（与上�
 **方式四：手工**
 
 ```sh
-tar xzf porch_1.1.1_linux_mipsle_softfloat.tar.gz
-scp porch_1.1.1_linux_mipsle_softfloat/porch root@192.168.1.1:/usr/bin/
+tar xzf porch_1.1.2_linux_mipsle_softfloat.tar.gz
+scp porch_1.1.2_linux_mipsle_softfloat/porch root@192.168.1.1:/usr/bin/
 scp openwrt/porch/files/porch.init root@192.168.1.1:/etc/init.d/porch   # 从仓库取
 chmod +x /etc/init.d/porch && /etc/init.d/porch enable && /etc/init.d/porch restart
 ```
@@ -279,7 +279,7 @@ sh install.sh -y
 
 - 会先读当前版本，同版本直接退出（加 `-f` 强制重装）
 - 升级时**配置目录原样保留**，服务会自动重启
-- 想装指定版本回退：`sh install.sh -v 1.1.1 -f`
+- 想装指定版本回退：`sh install.sh -v 1.1.2 -f`
 
 ---
 
@@ -300,7 +300,7 @@ Windows：`.\install.ps1 -Uninstall [-Purge]`。
 **A. 指向本地包（最省事）** —— 把发布页的 `tar.gz` 拷到机器上，直接指给脚本：
 
 ```sh
-sh install.sh --file ./porch_1.1.1_linux_arm64.tar.gz
+sh install.sh --file ./porch_1.1.2_linux_arm64.tar.gz
 ```
 
 版本和架构从文件名识别（文件名不认识时用 `-v` 补一下），同目录有 `SHA256SUMS`
@@ -321,8 +321,8 @@ PORCH_BASE_URL=http://a.internal/porch,http://b.internal/porch sh install.sh -y
 **C. 完全手工**：下载对应 tar.gz 拷进内网，解包得到单个 `porch` 文件：
 
 ```sh
-tar xzf porch_1.1.1_linux_arm64.tar.gz
-install -m 755 porch_1.1.1_linux_arm64/porch /usr/local/bin/porch
+tar xzf porch_1.1.2_linux_arm64.tar.gz
+install -m 755 porch_1.1.2_linux_arm64/porch /usr/local/bin/porch
 /usr/local/bin/porch -v
 ```
 
@@ -358,8 +358,8 @@ install -m 755 porch_1.1.1_linux_arm64/porch /usr/local/bin/porch
 git clone https://github.com/likz0421/porch.git
 cd porch
 go build -ldflags="-s -w" -o porch .          # 只编当前平台
-sh build.sh 1.1.1                              # 编全部 19 个平台
-sh scripts/package-release.sh 1.1.1            # 再打 zip / ipk / SHA256SUMS
+sh build.sh 1.1.2                              # 编全部 19 个平台
+sh scripts/package-release.sh 1.1.2            # 再打 zip / ipk / SHA256SUMS
 ```
 
 需要 Go 1.22+；打包 zip/ipk 需要 Python 3.7+。前端是 `go:embed` 进二进制的，

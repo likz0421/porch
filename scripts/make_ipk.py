@@ -11,12 +11,12 @@ ipk 的结构就是一个 gzip 的 tar，里面装三段：
 并且能固定 mtime/uid/gid，同一个输入永远得到同一个 ipk（可复现构建）。
 
 用法:
-  python3 make_ipk.py porch --version 1.1.1 --binary <porch 二进制> \\
+  python3 make_ipk.py porch --version 1.1.2 --binary <porch 二进制> \\
       --init openwrt/porch/files/porch.init --uci openwrt/porch/files/porch.uci \\
-      --out dist/porch_1.1.1_openwrt_x86_64.ipk
+      --out dist/porch_1.1.2_openwrt_x86_64.ipk
 
-  python3 make_ipk.py luci --version 1.1.1 --src openwrt/luci-app-porch \\
-      --out dist/luci-app-porch_1.1.1_all.ipk
+  python3 make_ipk.py luci --version 1.1.2 --src openwrt/luci-app-porch \\
+      --out dist/luci-app-porch_1.1.2_all.ipk
 """
 
 import argparse
@@ -231,7 +231,11 @@ def build_luci(args):
         [
             "Package: luci-app-porch",
             "Version: %s-1" % args.version,
-            "Depends: luci-base, porch, rpcd",
+            # 注意：这里**不能**依赖 porch——一键脚本是直接放二进制、不走包管理器，
+            # opkg 数据库里没有 porch 记录，写上依赖会让 opkg install 直接拒绝，
+            # 用户看到的就是「装了界面但服务菜单里找不到」。Buildroot 编译时
+            # openwrt/luci-app-porch/Makefile 里的 +porch 依赖仍然保留。
+            "Depends: luci-base, rpcd",
             "Section: luci",
             "Priority: optional",
             "Maintainer: %s" % args.maintainer,

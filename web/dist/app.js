@@ -260,7 +260,7 @@ function demoState() {
     ],
     system: { hostname: 'OpenWrt', os: 'linux', arch: 'arm64', goVersion: 'go1.22.5', uptime: '3 天 6 小时 12 分', cpuCount: 4, loadAvg: '0.12 0.08 0.05', memoryUsed: 412, memoryAll: 1985,
       interfaces: [{ name: 'br-lan', ipv4: ['192.168.1.1'] }, { name: 'pppoe-wan', ipv4: ['10.12.33.7'], ipv6: ['2408:8207:78cc::1'] }, { name: 'eth0', ipv4: [] }] },
-    version: '1.1.1', confDir: '/etc/porch/porchconf'
+    version: '1.1.2', confDir: '/etc/porch/porchconf'
   };
 }
 
@@ -305,11 +305,36 @@ async function loadState() {
     const sys = STATE.system || {};
     $('footInfo').textContent = (sys.hostname || '') + ' · ' + (sys.uptime || '');
     renderNav();
-    render();
+    // 仪表盘只看结构变化：运行时长/负载/内存每 15 秒必变，但那不是"结构变化"。
+    // 以前只要这几个字变了就整页重建 DOM，曲线图跟着被清空重画——
+    // 看起来就像"曲线图一刷新，页面也跟着刷新"。现在结构没变就只改那几个字。
+    const sig = structSig();
+    if (PAGE === 'dashboard' && lastRender.page === 'dashboard' && sig === lastStructSig) {
+      updateDashboardLive();
+    } else {
+      lastStructSig = sig;
+      render();
+    }
     updateHealth();
   } catch (e) {
     if (e.message !== '登录已过期') toast(e.message, 'err');
   }
+}
+
+// 页面结构签名：任务列表/版本变了才值得整页重绘
+function structSig() {
+  return JSON.stringify([STATE.version, STATE.ddns, STATE.cert, STATE.proxy]);
+}
+let lastStructSig = '';
+
+// 仪表盘上每 15 秒会变的几个字段，原地改文本，不动 DOM 结构
+function updateDashboardLive() {
+  const sys = STATE.system || {};
+  setText($('upVal'), sys.uptime || '-');
+  setText($('loadVal'), sys.loadAvg || '-');
+  setText($('memRowVal'), sys.memoryAll
+    ? (sys.memoryUsed || 0) + ' / ' + sys.memoryAll + ' MB'
+    : (sys.memoryUsed || 0) + ' MB');
 }
 
 async function reloadService() {
@@ -340,6 +365,7 @@ function render(force) {
     c.innerHTML = html;
     if (firstPaint) playEnter();
     lastRender = { page: PAGE, html: html };
+    lastStructSig = structSig();
     // DOM 已重建，之前缓存的片段 html 失效，必须允许重新写入
     lastKVHtml = '';
     lastCertHtml = '';
@@ -447,9 +473,9 @@ function renderDashboard() {
     { icon: 'i-globe', label: '动态域名任务', value: (STATE.ddns || []).length, hint: ddnsOK + ' 个运行中' },
     { icon: 'i-shield', label: 'SSL 证书', value: (STATE.cert || []).length, hint: certOK + ' 张已签发' },
     { icon: 'i-shuffle', label: '反向代理规则', value: (STATE.proxy || []).length, hint: proxyOn + ' 条已启用' },
-    { icon: 'i-clock', label: '运行时长', value: sys.uptime || '-', hint: (sys.os || '') + ' / ' + (sys.arch || '') }
+    { icon: 'i-clock', label: '运行时长', value: sys.uptime || '-', hint: (sys.os || '') + ' / ' + (sys.arch || ''), id: 'upVal' }
   ].map(s => '<div class="stat"><div class="label"><svg class="icon icon-sm"><use href="#' + s.icon + '"/></svg>' +
-    s.label + '</div><div class="value">' + esc(s.value) + '</div><div class="hint">' + esc(s.hint) + '</div></div>').join('');
+    s.label + '</div><div class="value"' + (s.id ? ' id="' + s.id + '"' : '') + '>' + esc(s.value) + '</div><div class="hint">' + esc(s.hint) + '</div></div>').join('');
 
   const charts =
     '<section class="card chart-card">' +
@@ -492,8 +518,8 @@ function renderDashboard() {
   const sysInfo = '<div class="grid grid-2">' +
     infoCard('主机信息', [
       ['主机名', sys.hostname], ['系统架构', (sys.os || '') + ' / ' + (sys.arch || '')],
-      ['CPU 核心', sys.cpuCount], ['负载', sys.loadAvg || '-'],
-      ['内存', sys.memoryAll ? (sys.memoryUsed || 0) + ' / ' + sys.memoryAll + ' MB' : (sys.memoryUsed || 0) + ' MB'],
+      ['CPU 核心', sys.cpuCount], ['负载', sys.loadAvg || '-', 'loadVal'],
+      ['内存', sys.memoryAll ? (sys.memoryUsed || 0) + ' / ' + sys.memoryAll + ' MB' : (sys.memoryUsed || 0) + ' MB', 'memRowVal'],
       ['Go 版本', sys.goVersion]
     ]) +
     infoCard('网络接口（前 6 个）', (sys.interfaces || []).slice(0, 6).map(i =>
@@ -509,8 +535,10 @@ function renderDashboard() {
 }
 
 function infoCard(title, rows) {
+  // r[2] 可选：给值单元格一个 id，让 15 秒轮询能原地改文本（避免整卡重建）
   return '<div class="card"><div class="card-head"><h2>' + esc(title) + '</h2></div><table><tbody>' +
-    (rows || []).map(r => '<tr><td class="sub" style="width:38%">' + esc(r[0]) + '</td><td>' + esc(r[1] === undefined || r[1] === null ? '-' : r[1]) + '</td></tr>').join('') +
+    (rows || []).map(r => '<tr><td class="sub" style="width:38%">' + esc(r[0]) + '</td><td' +
+      (r[2] ? ' id="' + r[2] + '"' : '') + '>' + esc(r[1] === undefined || r[1] === null ? '-' : r[1]) + '</td></tr>').join('') +
     '</tbody></table></div>';
 }
 

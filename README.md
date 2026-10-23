@@ -9,7 +9,7 @@
 > 给家里（或公司内网）的 NAS、路由器后台、摄像头、自建服务开一道**有门牌、有锁、看得见**的门。
 
 Go 语言编写，零第三方依赖，内置浅色毛玻璃 Web 管理界面，并提供 OpenWrt LUCI 界面包。
-当前版本 **1.1.1**。
+当前版本 **1.1.2**。
 
 ---
 
@@ -33,10 +33,10 @@ OpenWrt 上如果系统里已经有 LuCI，脚本会把界面包 `luci-app-porch
 
 ```sh
 sh install.sh --check        # 只体检，不改任何东西
-sh install.sh -v 1.1.1       # 装指定版本
+sh install.sh -v 1.1.2       # 装指定版本
 sh install.sh -p 8080        # 装的时候指定管理端口（不给会交互问一次）
 sh install.sh --probe        # 先测速再下载（大陆网络推荐）
-sh install.sh --file ./porch_1.1.1_linux_arm64.tar.gz   # 离线装（不联网）
+sh install.sh --file ./porch_1.1.2_linux_arm64.tar.gz   # 离线装（不联网）
 sh install.sh --uninstall    # 卸载（--purge 连配置一起删）
 sh install.sh -h             # 全部参数
 ```
@@ -81,7 +81,7 @@ sh install.sh -h             # 全部参数
 > **关于"参考 lucky 源码"的说明**
 > lucky 3.3.x 未开源，且 `3.3.3_xiaojv` 分发包被魔改 UPX 加壳，静态无法还原（详见 `../lucky-re/逆向分析报告.md`）。
 > 本项目**只对齐了使用习惯**（管理端口默认 5200（Lucky 是 16601，可在网页/`-p` 改）、666/666 账号、`-cd` 配置目录、DDNS/证书/反代的功能边界与 OpenWrt 集成方式），
-> 代码为自研实现：**零第三方依赖**，仅使用 Go 标准库。版本号使用自研编号 `1.1.1`，不冒用 3.3.3。
+> 代码为自研实现：**零第三方依赖**，仅使用 Go 标准库。版本号使用自研编号 `1.1.2`，不冒用 3.3.3。
 
 ### 0.1 Logo
 
@@ -401,28 +401,28 @@ Windows 版实测（本机 Windows 10/11 环境）：
 Release 里为每个平台都准备了独立压缩包，包内是 **`porch` 单文件 + README.md**，解压即用：
 
 ```bash
-tar xzf porch_1.1.1_linux_mipsle_softfloat.tar.gz
-./porch_1.1.1_linux_mipsle_softfloat/porch -cd /etc/porch/porchconf -p 5200
+tar xzf porch_1.1.2_linux_mipsle_softfloat.tar.gz
+./porch_1.1.2_linux_mipsle_softfloat/porch -cd /etc/porch/porchconf -p 5200
 ```
 
 完整清单（19 个 tar.gz + 2 个 Windows zip + OpenWrt 的 12 个 ipk 与 12 个 apk）与
 "该选哪个"的对照表在 **[docs/PLATFORMS.md](docs/PLATFORMS.md)**。常用的几个：
 
 ```
-porch_1.1.1_linux_x86_64.tar.gz        软路由 / x86 小主机 / 云服务器
-porch_1.1.1_linux_arm64.tar.gz         树莓派 3/4/5、ARM64 路由与 NAS
-porch_1.1.1_linux_armv7.tar.gz         多数硬路由（Cortex-A7/A9/A15）
-porch_1.1.1_linux_mipsle_hardfloat.tar.gz  小端 MIPS + FPU（多数 MTK 路由）
-porch_1.1.1_freebsd_x86_64.tar.gz      FreeBSD
-porch_1.1.1_darwin_arm64.tar.gz        Apple Silicon Mac
-porch_1.1.1_windows_x86_64.zip         Windows 免安装包（exe + 启动脚本）
-porch_1.1.1_openwrt_arm64.apk          OpenWrt 25.12+（apk）
-porch_1.1.1_openwrt_armv7.ipk          OpenWrt 24.10-（opkg）
+porch_1.1.2_linux_x86_64.tar.gz        软路由 / x86 小主机 / 云服务器
+porch_1.1.2_linux_arm64.tar.gz         树莓派 3/4/5、ARM64 路由与 NAS
+porch_1.1.2_linux_armv7.tar.gz         多数硬路由（Cortex-A7/A9/A15）
+porch_1.1.2_linux_mipsle_hardfloat.tar.gz  小端 MIPS + FPU（多数 MTK 路由）
+porch_1.1.2_freebsd_x86_64.tar.gz      FreeBSD
+porch_1.1.2_darwin_arm64.tar.gz        Apple Silicon Mac
+porch_1.1.2_windows_x86_64.zip         Windows 免安装包（exe + 启动脚本）
+porch_1.1.2_openwrt_arm64.apk          OpenWrt 25.12+（apk）
+porch_1.1.2_openwrt_armv7.ipk          OpenWrt 24.10-（opkg）
 ```
 
 > 不带扩展名的 `porch` 就是完整程序（静态链接，不依赖 libc）；Windows 包内是 `porch.exe`。
-> 自己编译全部平台：`sh build.sh 1.1.1`；连 zip/ipk/apk/校验和一起打：
-> `sh scripts/package-release.sh 1.1.1`（apk 那一步需要 root + apk-tools ≥ 3，脚本会自动检测，
+> 自己编译全部平台：`sh build.sh 1.1.2`；连 zip/ipk/apk/校验和一起打：
+> `sh scripts/package-release.sh 1.1.2`（apk 那一步需要 root + apk-tools ≥ 3，脚本会自动检测，
 > 缺条件时明确打印跳过命令而不是假装成功）。
 
 ---

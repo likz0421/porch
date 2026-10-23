@@ -94,11 +94,11 @@ ipk 的 `Architecture` 字段和 apk 的 `arch` 字段都写的是 `all` / `noar
 
 ```sh
 # apk 时代（25.12+）—— 未签名包必须加 --allow-untrusted
-apk add --repositories-file /dev/null --allow-untrusted /tmp/porch_1.1.1_openwrt_arm64.apk
+apk add --repositories-file /dev/null --allow-untrusted /tmp/porch_1.1.2_openwrt_arm64.apk
 apk del porch                                     # 卸载
 
 # opkg 时代（≤24.10）
-opkg install porch_1.1.1_openwrt_armv7.ipk
+opkg install porch_1.1.2_openwrt_armv7.ipk
 opkg remove porch                                 # 卸载
 ```
 
@@ -174,7 +174,7 @@ grep -m1 -iE 'model name|Processor|system type|cpu model' /proc/cpuinfo   # ③ 
 
 ```sh
 /usr/bin/porch -v
-# 正常输出形如： porch 1.1.1 (release) linux/arm64
+# 正常输出形如： porch 1.1.2 (release) linux/arm64
 # 后面那个 xxx/yyy 就是实际能跑的架构；如果报 Exec format error 或 Illegal instruction，
 # 就是装错了（MIPS 机型报 Illegal instruction 请换 softfloat 版）。
 ```
