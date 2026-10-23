@@ -1,0 +1,62 @@
+msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Porch 服务状态"
+msgstr "Porch 服务状态"
+
+msgid "运行状态"
+msgstr "运行状态"
+
+msgid "运行中"
+msgstr "运行中"
+
+msgid "已停止"
+msgstr "已停止"
+
+msgid "程序版本"
+msgstr "程序版本"
+
+msgid "管理端口"
+msgstr "管理端口"
+
+msgid "配置目录"
+msgstr "配置目录"
+
+msgid "动态域名任务"
+msgstr "动态域名任务"
+
+msgid "证书任务"
+msgstr "证书任务"
+
+msgid "反代规则"
+msgstr "反代规则"
+
+msgid "运行时长"
+msgstr "运行时长"
+
+msgid "启动"
+msgstr "启动"
+
+msgid "停止"
+msgstr "停止"
+
+msgid "重启"
+msgstr "重启"
+
+msgid "打开 Web 管理界面"
+msgstr "打开 Web 管理界面"
+
+msgid "操作失败"
+msgstr "操作失败"
+
+msgid "Porch 基础设置"
+msgstr "Porch 基础设置"
+
+msgid "服务设置"
+msgstr "服务设置"
+
+msgid "启用服务"
+msgstr "启用服务"
+
+msgid "允许外网访问"
+msgstr "允许外网访问"

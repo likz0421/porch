@@ -1,0 +1,71 @@
+#!/bin/sh
+# rpcd 插件：供 LUCI 查询/控制 Porch 服务
+#   方法: status / state / start / stop / restart
+
+. /usr/share/libubox/jshn.sh
+
+PROG=/usr/bin/porch
+CONF=$(uci -q get porch.@porch[0].config_dir)
+[ -z "$CONF" ] && CONF=/etc/porch/porchconf
+
+running() {
+	pidof porch >/dev/null 2>&1 && echo 1 || echo 0
+}
+
+port_of() {
+	uci -q get porch.@porch[0].port
+}
+
+do_status() {
+	local run=$(running)
+	local port=$(port_of)
+	local ping="{}"
+	[ -n "$port" ] && ping=$(curl -s -m 2 "http://127.0.0.1:${port}/api/ping" 2>/dev/null)
+	[ -z "$ping" ] && ping="{}"
+
+	json_init
+	json_add_boolean running "$run"
+	json_add_string port "$port"
+	json_add_string confDir "$CONF"
+	json_add_string ping "$ping"
+	json_dump
+}
+
+do_state() {
+	local out
+	out=$(curl -s -m 2 "http://127.0.0.1:$(port_of)/api/ping" 2>/dev/null)
+	[ -z "$out" ] && out='{"ok":false}'
+	echo "$out"
+}
+
+do_call() {
+	local method="$1"
+	case "$method" in
+		status) do_status ;;
+		state) do_state ;;
+		start)
+			/etc/init.d/porch start
+			json_init; json_add_boolean result 1; json_dump
+			;;
+		stop)
+			/etc/init.d/porch stop
+			json_init; json_add_boolean result 1; json_dump
+			;;
+		restart)
+			/etc/init.d/porch restart
+			json_init; json_add_boolean result 1; json_dump
+			;;
+		*)
+			json_init; json_add_string error "unknown method"; json_dump
+			;;
+	esac
+}
+
+case "$1" in
+	list)
+		echo '{ "status": { }, "state": { }, "start": { }, "stop": { }, "restart": { } }'
+		;;
+	call)
+		do_call "$2"
+		;;
+esac

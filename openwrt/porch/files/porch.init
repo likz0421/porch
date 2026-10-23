@@ -1,0 +1,56 @@
+#!/bin/sh /etc/rc.common
+# Porch 服务启动脚本（procd）
+# 配置项位于 /etc/config/porch
+
+START=99
+STOP=15
+USE_PROCD=1
+
+PROG=/usr/bin/porch
+CONF_DIR=/etc/porch/porchconf
+
+get_option() {
+	local name="$1"
+	local default="$2"
+	local value
+	value=$(uci -q get porch.@porch[0].$name)
+	[ -z "$value" ] && value="$default"
+	echo "$value"
+}
+
+start_service() {
+	enabled=$(get_option enabled 1)
+	[ "$enabled" = "0" ] && {
+		echo "porch 已在 UCI 中禁用" >&2
+		return 0
+	}
+
+	CONF_DIR=$(get_option config_dir "$CONF_DIR")
+	port=$(get_option port "")
+
+	mkdir -p "$CONF_DIR"
+
+	procd_open_instance
+	procd_set_param command "$PROG" -cd "$CONF_DIR"
+	[ -n "$port" ] && procd_append_param command -p "$port"
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param pidfile /var/run/porch.pid
+	procd_close_instance
+
+	logger -t porch "已启动，配置目录: $CONF_DIR"
+}
+
+stop_service() {
+	logger -t porch "已停止"
+}
+
+reload_service() {
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger porch
+}

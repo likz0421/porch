@@ -1,0 +1,26 @@
+{
+	"admin/services/porch": {
+		"title": "Porch 门廊",
+		"order": 65,
+		"action": {
+			"type": "view",
+			"path": "porch/status"
+		},
+		"depends": {
+			"acl": [ "luci-app-porch" ],
+			"uci": { "porch": true }
+		}
+	},
+	"admin/services/porch/settings": {
+		"title": "基础设置",
+		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "porch/settings"
+		},
+		"depends": {
+			"acl": [ "luci-app-porch" ],
+			"uci": { "porch": true }
+		}
+	}
+}

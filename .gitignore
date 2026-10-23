@@ -1,0 +1,33 @@
+# 构建产物（由 build.sh / package-release.sh 生成）
+# 注意用 /dist/ 而不是 dist/：后者会连带忽略 web/dist（前端产物，被 go:embed 引用，必须入库）
+/dist/
+/dist-test/
+/build/
+*.tar.gz
+*.zip
+*.ipk
+*.exe
+
+# 运行时数据：配置、证书、日志一律不入库（里面有域名、ACME 账号、私钥）
+porchconf/
+luckyconf/
+**/porchconf/
+**/luckyconf/
+certs/
+*.pem
+*.key
+*.log
+
+# 本地/编辑器
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# 项目记忆（可能含服务器地址）
+.workbuddy/
+
+# 临时目录
+tmp/
+tmp-*/

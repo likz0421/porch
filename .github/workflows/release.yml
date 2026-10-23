@@ -1,0 +1,185 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号（不含 v），如 1.1.0'
+        required: true
+        default: '1.1.0'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: 单元测试与规范检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^$' || true)
+          if [ -n "$unformatted" ]; then
+            echo "以下文件需要 gofmt:"; echo "$unformatted"; exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./... -count=1 -cover
+
+  build:
+    name: 交叉编译与打包
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: 版本号
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "ver=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "ver=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 构建全部平台 + 组装 ipk/zip/校验和
+        run: sh scripts/package-release.sh "${{ steps.v.outputs.ver }}"
+
+      - name: 产物自检
+        run: |
+          set -e
+          n_tar=$(ls -1 dist/*.tar.gz | wc -l)
+          n_zip=$(ls -1 dist/*.zip | wc -l)
+          n_ipk=$(ls -1 dist/*.ipk | wc -l)
+          echo "tar.gz=$n_tar zip=$n_zip ipk=$n_ipk"
+          [ "$n_tar" -ge 19 ] || { echo "缺少 tar.gz 资产"; exit 1; }
+          [ "$n_zip" -ge 2 ]  || { echo "缺少 Windows zip"; exit 1; }
+          [ "$n_ipk" -ge 12 ] || { echo "缺少 ipk 资产"; exit 1; }
+          cd dist
+          sha256sum -c SHA256SUMS --quiet && echo "校验和全部通过"
+          # Windows 包里必须是 porch.exe，不能是裸 porch
+          unzip -l porch_*_windows_x86_64.zip | grep -q 'porch.exe'
+
+      - name: ipk 结构自检
+        run: python3 scripts/verify_ipk.py dist/*.ipk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: porch-assets
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.ipk
+            dist/SHA256SUMS
+          retention-days: 7
+
+      - name: 发布到 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Porch ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.ipk
+            dist/SHA256SUMS
+          body: |
+            ## 安装（一条命令）
+
+            **Linux / OpenWrt / macOS / FreeBSD**
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sh
+            ```
+
+            **Windows（PowerShell）**
+            ```powershell
+            irm https://raw.githubusercontent.com/${{ github.repository }}/main/install.ps1 | iex
+            ```
+
+            脚本会自动识别系统与 CPU 架构、选对应的包、校验 SHA256、装好后实跑一次自检。
+            详细说明见 [docs/INSTALL.md](https://github.com/${{ github.repository }}/blob/main/docs/INSTALL.md)。
+
+  smoke:
+    name: 真实安装冒烟（${{ matrix.os }}）
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 用发布出来的脚本装一遍
+        run: |
+          set -e
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            sudo sh install.sh -y --no-service -d /usr/local/bin -c /tmp/porch-smoke/porchconf
+            BIN=/usr/local/bin/porch
+          else
+            sh install.sh -y --no-service --user
+            BIN="$HOME/.local/bin/porch"
+          fi
+          "$BIN" -v
+          echo "BIN=$BIN" >> "$GITHUB_ENV"
+
+      - name: 启动并访问 /api/ping
+        run: |
+          set -e
+          "$BIN" -cd /tmp/porch-smoke/porchconf -p 16601 >/tmp/porch.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:16601/api/ping > /tmp/ping.json 2>/dev/null; then break; fi
+            sleep 1
+          done
+          cat /tmp/ping.json
+          grep -q '"ok":true' /tmp/ping.json
+          grep -q '"service":"porch"' /tmp/ping.json
+          pkill -f 'porch -cd' || true
+
+      - name: 卸载
+        run: sh install.sh --uninstall -y || true
+
+  offline-smoke:
+    name: 离线安装冒烟（--file）
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: porch-assets
+          path: assets
+      - name: 从本地包安装（不联网）
+        run: |
+          set -e
+          V="${GITHUB_REF_NAME#v}"
+          sudo sh install.sh --file "assets/porch_${V}_linux_x86_64.tar.gz" \
+               -y --no-service -d /usr/local/bin -c /tmp/porch-offline/porchconf
+          /usr/local/bin/porch -v
+      - name: 起服务验探活
+        run: |
+          set -e
+          /usr/local/bin/porch -cd /tmp/porch-offline/porchconf -p 16602 >/tmp/porch-off.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -fsS http://127.0.0.1:16602/api/ping -o /tmp/ping2.json 2>/dev/null && break
+            sleep 1
+          done
+          grep -q '"ok":true' /tmp/ping2.json
+          pkill -f 'porch -cd' || true

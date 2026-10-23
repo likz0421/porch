@@ -1,0 +1,17 @@
+{
+	"luci-app-porch": {
+		"description": "允许 LUCI 查询与控制 Porch 服务",
+		"read": {
+			"uci": [ "porch" ],
+			"ubus": {
+				"porch": [ "status", "state" ]
+			}
+		},
+		"write": {
+			"uci": [ "porch" ],
+			"ubus": {
+				"porch": [ "start", "stop", "restart" ]
+			}
+		}
+	}
+}
