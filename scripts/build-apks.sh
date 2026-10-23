@@ -38,7 +38,7 @@ failed=""
 for arch in $ARCHS; do
 	tgz="$OUT/porch_${VERSION}_linux_${arch}.tar.gz"
 	if [ ! -f "$tgz" ]; then
-		echo "  跳过 $arch（缺 $(basename "$tgz")）"
+		echo "  跳过 ${arch}（缺 $(basename "$tgz")）"
 		failed="$failed $arch"
 		continue
 	fi

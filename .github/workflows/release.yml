@@ -198,7 +198,7 @@ jobs:
           set -e
           # 1) -p 必须落到 base.json（这样以后网页里改端口才有效）
           sudo sh install.sh -y --no-service -p 18080 -d /usr/local/bin -c /tmp/porch-smoke/porchconf
-          python3 - <<'PY'
+          sudo python3 - <<'PY'
           import json
           d = json.load(open('/tmp/porch-smoke/porchconf/base.json'))
           assert d.get('adminWebListenPort') == 18080, d
@@ -210,7 +210,7 @@ jobs:
             | tee /tmp/port.log
           grep -q '只改管理端口' /tmp/port.log
           grep -q '下载 porch_' /tmp/port.log && { echo "FAIL: 只改端口却又重新下载了"; exit 1; } || true
-          python3 - <<'PY'
+          sudo python3 - <<'PY'
           import json
           d = json.load(open('/tmp/porch-smoke/porchconf/base.json'))
           assert d.get('adminWebListenPort') == 18081, d

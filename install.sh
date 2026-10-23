@@ -666,7 +666,7 @@ service_port() {
 #       避免「脚本提示 5200、程序实际听 16601」这种两边对不上的情况。
 apply_port() {
 	[ "$DRY_RUN" = 0 ] || { info "[dry-run] 管理端口 $([ -n "$PORT" ] && echo "$PORT" || echo "默认 $DEFAULT_PORT") 写入 $CONF_DIR/base.json"; return 0; }
-	mkdir -p "$CONF_DIR" 2>/dev/null || { [ -z "$PORT" ] || warn "无法创建配置目录 $CONF_DIR，端口未写入配置"; return 0; }
+	mkdir -p "$CONF_DIR" 2>/dev/null || { [ -z "$PORT" ] || warn "无法创建配置目录 ${CONF_DIR}，端口未写入配置"; return 0; }
 	_bj="$CONF_DIR/base.json"
 	_up="$PORT"
 
@@ -689,7 +689,7 @@ apply_port() {
 		# sed -i.bak 是 BSD/GNU 都认的写法（BSD 的 -i 必须带后缀）
 		if sed -i.bak -e "s/\"adminWebListenPort\"[[:space:]]*:[[:space:]]*[0-9]\+/\"adminWebListenPort\": $_up/" "$_bj" 2>/dev/null; then
 			rm -f "$_bj.bak" 2>/dev/null || true
-			ok "管理端口已更新为 $_up（$CONF_DIR/base.json）"
+			ok "管理端口已更新为 ${_up}（$CONF_DIR/base.json）"
 		else
 			warn "改不了 $_bj 里的端口，改用服务参数 -p $_up 兜底"; [ -n "$PORT" ] && PORT_ARG="-p $PORT"
 		fi
@@ -699,7 +699,7 @@ apply_port() {
 			rm -f "$_bj.bak" 2>/dev/null || true
 			ok "管理端口已写入 $CONF_DIR/base.json: $_up"
 		else
-			warn "改不了 $_bj，改用服务参数 -p $_up 兜底"; [ -n "$PORT" ] && PORT_ARG="-p $PORT"
+			warn "改不了 ${_bj}，改用服务参数 -p $_up 兜底"; [ -n "$PORT" ] && PORT_ARG="-p $PORT"
 		fi
 	fi
 	return 0
@@ -985,7 +985,7 @@ install_luci() {
 	if [ "$LOCAL_PKG" = 1 ]; then
 		_lsrc="$(dirname "$PKG_PATH")/$_lasset"
 		if [ ! -f "$_lsrc" ]; then
-			info "本地包旁边没有 $_lasset，跳过 LuCI 界面"
+			info "本地包旁边没有 ${_lasset}，跳过 LuCI 界面"
 			info "  单独下载: ${TAG}/${_lasset}"
 			return 0
 		fi
@@ -993,7 +993,7 @@ install_luci() {
 		ok "已读取 $_lasset"
 	else
 		if ! download_asset "$_lasset" "$_lfile"; then
-			warn "没下载到 $_lasset，跳过 LuCI 界面（后端不受影响）"
+			warn "没下载到 ${_lasset}，跳过 LuCI 界面（后端不受影响）"
 			return 0
 		fi
 	fi
@@ -1020,7 +1020,7 @@ install_luci() {
 	esac
 	_rc=$?
 	if [ "$_rc" != 0 ]; then
-		warn "安装 $_lasset 失败（退出码 $_rc）"
+		warn "安装 $_lasset 失败（退出码 ${_rc}）"
 		info "常见原因: ① luci-base 版本不匹配 ② 包管理器正忙（等几秒重试） ③ 空间不足"
 		info "手动重试: $LUCI_PKG_MGR install $_lfile"
 		return 0
@@ -1064,7 +1064,7 @@ print_env() {
 	info "校验工具: ${SHA_TOOL:-未找到（将跳过校验）}"
 	if [ -n "$LUCI_PKG_MGR" ]; then
 		if [ "$HAS_LUCI" = 1 ]; then
-			info "LuCI: 已检测到（装完会一并安装界面包，包管理器 $LUCI_PKG_MGR）"
+			info "LuCI: 已检测到（装完会一并安装界面包，包管理器 ${LUCI_PKG_MGR}）"
 		elif [ "$LUCI_MODE" = yes ]; then
 			info "LuCI: 未检测到，但指定了 --luci，仍会尝试安装"
 		else
@@ -1077,9 +1077,9 @@ print_env() {
 	elif [ "$UNINSTALL" = 0 ] && [ "$CHECK_ONLY" = 0 ]; then
 		_pp=$(service_port)
 		if [ -n "$_pp" ]; then
-			info "管理端口: $_pp（沿用现有配置）"
+			info "管理端口: ${_pp}（沿用现有配置）"
 		else
-			info "管理端口: 待定（默认 $DEFAULT_PORT，稍后可改）"
+			info "管理端口: 待定（默认 ${DEFAULT_PORT}，稍后可改）"
 		fi
 	fi
 	if [ -n "$INSTALL_DIR" ]; then
@@ -1293,7 +1293,7 @@ if [ -n "$CUR_VER" ] && [ "$CUR_VER" = "$VER" ] && [ "$FORCE" = 0 ] && [ "$DRY_R
 		exit 0
 	fi
 	# 版本没变、只是端口变了：只重写服务配置，不重新下载 2.8MB 二进制
-	step "只改管理端口（${_cur_port:-$DEFAULT_PORT} → $PORT）"
+	step "只改管理端口（${_cur_port:-$DEFAULT_PORT} → ${PORT}）"
 	install_service
 	ok "端口已改为 $PORT"
 	info "管理界面: http://<本机IP>:$PORT"
