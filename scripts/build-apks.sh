@@ -6,12 +6,12 @@
 # 一句 `sudo -E sh scripts/build-apks.sh <ver>`。
 #
 # 前置：sh scripts/install-apk-tools.sh <dir>（拿静态 apk-tools 3），
-#       然后 APK_BIN=<dir>/apk sudo -E sh scripts/build-apks.sh 1.1.0
+#       然后 APK_BIN=<dir>/apk sudo -E sh scripts/build-apks.sh 1.1.1
 #
 # 用法: sh scripts/build-apks.sh [版本] [dist 目录]
 set -eu
 
-VERSION=${1:-1.1.0}
+VERSION=${1:-1.1.1}
 OUT=${2:-dist}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"

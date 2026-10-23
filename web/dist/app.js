@@ -260,7 +260,7 @@ function demoState() {
     ],
     system: { hostname: 'OpenWrt', os: 'linux', arch: 'arm64', goVersion: 'go1.22.5', uptime: '3 天 6 小时 12 分', cpuCount: 4, loadAvg: '0.12 0.08 0.05', memoryUsed: 412, memoryAll: 1985,
       interfaces: [{ name: 'br-lan', ipv4: ['192.168.1.1'] }, { name: 'pppoe-wan', ipv4: ['10.12.33.7'], ipv6: ['2408:8207:78cc::1'] }, { name: 'eth0', ipv4: [] }] },
-    version: '1.1.0', confDir: '/etc/porch/porchconf'
+    version: '1.1.1', confDir: '/etc/porch/porchconf'
   };
 }
 

@@ -3,10 +3,10 @@
 #
 #  用法（PowerShell 5.1 或 7+）:
 #    irm https://raw.githubusercontent.com/likz0421/porch/main/install.ps1 | iex
-#    .\install.ps1 -Version 1.1.0
+#    .\install.ps1 -Version 1.1.1
 #    .\install.ps1 -Port 8080            装的时候指定管理端口（不给就交互问一次）
 #    .\install.ps1 -Probe                先给每个加速站测速再下载（大陆网络推荐）
-#    .\install.ps1 -File .\porch_1.1.0_windows_x86_64.zip   离线安装（不联网）
+#    .\install.ps1 -File .\porch_1.1.1_windows_x86_64.zip   离线安装（不联网）
 #    .\install.ps1 -Check                只做环境检测
 #    .\install.ps1 -Uninstall            卸载（加 -Purge 连配置一起删）
 #
@@ -328,7 +328,7 @@ if ($File) {
     } elseif ($Version) {
         $Ver = $Version.TrimStart('v')
     } else {
-        Fail "无法从文件名识别版本: $PkgName" '文件名应形如 porch_1.1.0_windows_x86_64.zip；或用 -Version 指定'
+        Fail "无法从文件名识别版本: $PkgName" '文件名应形如 porch_1.1.1_windows_x86_64.zip；或用 -Version 指定'
     }
     $Tag = "v$Ver"
     $Asset = $PkgName
@@ -342,10 +342,10 @@ if ($File) {
         # 已经装好了就别因为查不到版本号而报错退出——用户本来只是想确认/升级
         if ($CurVer) {
             Write-Warn2 "查不到最新版本（网络受限）；当前已安装 $CurVer，未做任何修改"
-            Write-Info '要装指定版本:  .\install.ps1 -Version 1.1.0'
+            Write-Info '要装指定版本:  .\install.ps1 -Version 1.1.1'
             exit 0
         }
-        Fail '拿不到最新版本号' '网络可能被限制：用 -Version 1.1.0 指定，或用 -Mirror 换镜像'
+        Fail '拿不到最新版本号' '网络可能被限制：用 -Version 1.1.1 指定，或用 -Mirror 换镜像'
     }
     Write-Ok "最新版本: $Tag"
 }

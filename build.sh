@@ -2,7 +2,7 @@
 # Porch 交叉编译脚本：按发布矩阵一次产出全部平台
 #
 # 用法:
-#   sh build.sh                 # 版本取 1.1.0，产物写入 dist/
+#   sh build.sh                 # 版本取 1.1.1，产物写入 dist/
 #   sh build.sh 1.2.0           # 指定版本
 #   sh build.sh 1.2.0 out       # 指定版本与输出目录
 #   ONLY=linux sh build.sh      # 只编某个 OS（调试用）
@@ -15,7 +15,7 @@
 # 产物命名: porch_<版本>_<os>_<后缀>.tar.gz，包内是 porch（Windows 为 porch.exe）+ README.md
 set -eu
 
-VERSION=${1:-1.1.0}
+VERSION=${1:-1.1.1}
 OUT=${2:-dist}
 ONLY=${ONLY:-}
 LDFLAGS="-s -w -X main.version=$VERSION -X main.build=release"

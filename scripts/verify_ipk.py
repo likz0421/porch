@@ -7,7 +7,7 @@ ipk 格式（Debian 系 ar 的 tar 变体）：
     ./data.tar.gz     实际文件树
 
 用法：
-    python scripts/verify_ipk.py dist/porch_1.1.0_openwrt_x86_64.ipk [...]
+    python scripts/verify_ipk.py dist/porch_1.1.1_openwrt_x86_64.ipk [...]
 """
 
 import io

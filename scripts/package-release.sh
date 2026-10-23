@@ -2,7 +2,7 @@
 # 生成一整套发布资产（CI 与本地都用这一个脚本）
 #
 # 用法:
-#   sh scripts/package-release.sh                # 版本 1.1.0
+#   sh scripts/package-release.sh                # 版本 1.1.1
 #   sh scripts/package-release.sh 1.2.0          # 指定版本
 #   SKIP_BUILD=1 sh scripts/package-release.sh   # 复用 dist/ 里已有的 tar.gz，只重新打包 ipk/zip
 #
@@ -16,7 +16,7 @@
 #   SHA256SUMS                       全部资产的校验和
 set -eu
 
-VERSION=${1:-1.1.0}
+VERSION=${1:-1.1.1}
 OUT=${2:-dist}
 SKIP_BUILD=${SKIP_BUILD:-0}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)

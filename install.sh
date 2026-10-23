@@ -5,7 +5,7 @@
 #  支持: Linux（含 OpenWrt / 各发行版）/ macOS / FreeBSD
 #        CPU: x86_64 i386 arm64 armv7 armv6 armv5 mips mipsle riscv64
 #  用法: sh install.sh                 安装最新版
-#        sh install.sh -v 1.1.0        安装指定版本
+#        sh install.sh -v 1.1.1        安装指定版本
 #        sh install.sh --check         只做环境检测，不安装
 #        sh install.sh --uninstall     卸载
 #        sh install.sh -h              完整参数
@@ -99,7 +99,7 @@ Porch 门廊 · 一键在线安装
   sh install.sh --uninstall --purge   卸载并连配置一起删（不可恢复）
 
 选项
-  -v, --version VER    安装指定版本（如 1.1.0 或 v1.1.0；默认最新）
+  -v, --version VER    安装指定版本（如 1.1.1 或 v1.1.1；默认最新）
   -d, --dir DIR        程序安装目录（默认 /usr/local/bin）
   -c, --conf DIR       配置目录（默认 /etc/porch/porchconf）
   -p, --port PORT      管理端口（默认 5200；安装时不给会交互问一次，回车即默认）
@@ -132,10 +132,10 @@ OpenWrt 说明: 检测到系统里有 LuCI 时，会顺带把「服务 → Porch
 示例:
   curl -fsSL https://raw.githubusercontent.com/likz0421/porch/main/install.sh | sh
   sh install.sh --probe            # 大陆网络：先测速再下载
-  sh install.sh -v 1.1.0 --mirror ",https://ghfast.top/"
+  sh install.sh -v 1.1.1 --mirror ",https://ghfast.top/"
   sh install.sh http://your-mirror.host   # 自建源（兼容 Lucky 脚本的传参风格）
   sh install.sh --check
-  sh install.sh --file ./porch_1.1.0_linux_x86_64.tar.gz
+  sh install.sh --file ./porch_1.1.1_linux_x86_64.tar.gz
   sh install.sh --uninstall --purge
 
 大陆网络拉不下这个脚本本身时，先把 GitHub 地址套一层加速：
@@ -1233,7 +1233,7 @@ if [ -n "$PKG_PATH" ]; then
 	_f_ver=$(printf '%s' "$_pkg_name" | sed -n 's/^porch_\([0-9][0-9A-Za-z.]*\)_.*\.tar\.gz$/\1/p')
 	if [ -z "$_f_ver" ]; then
 		[ -n "$VERSION_ARG" ] || die "无法从文件名识别版本: $_pkg_name" \
-			"文件名应形如 porch_1.1.0_linux_x86_64.tar.gz；或用 -v 1.1.0 明确指定版本"
+			"文件名应形如 porch_1.1.1_linux_x86_64.tar.gz；或用 -v 1.1.1 明确指定版本"
 		_f_ver=${VERSION_ARG#v}
 	fi
 	VER=$_f_ver
@@ -1259,7 +1259,7 @@ else
 		# 已经装好了就别因为查不到版本号而中断——用户可能只是确认一下
 		if [ -n "$CUR_VER" ]; then
 			warn "查不到最新版本（网络受限）；当前已安装 ${CUR_VER}，未做任何修改"
-			info "要装指定版本: sh install.sh -v 1.1.0"
+			info "要装指定版本: sh install.sh -v 1.1.1"
 			exit 0
 		fi
 		die "拿不到最新版本号" "网络可能被限制：用 -v 指定版本，或加 --mirror 指定镜像"
@@ -1269,7 +1269,7 @@ else
 fi
 
 case "$VER" in
-	''|*[!0-9.]*) die "版本号格式不对: ${VERSION_ARG:-$VER}" "示例: -v 1.1.0" ;;
+	''|*[!0-9.]*) die "版本号格式不对: ${VERSION_ARG:-$VER}" "示例: -v 1.1.1" ;;
 esac
 
 [ -n "$ASSET" ] || ASSET="${BIN_NAME}_${VER}_${OS}_${ARCH}.tar.gz"

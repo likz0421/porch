@@ -11,12 +11,12 @@
 #       并且要以 root 运行（mkpkg 会记录磁盘上的属主，fakeroot 对它无效）
 #
 # 用法:
-#   sh scripts/make_apk.sh porch --binary <porch 二进制> --version 1.1.0 \
+#   sh scripts/make_apk.sh porch --binary <porch 二进制> --version 1.1.1 \
 #       [--init openwrt/porch/files/porch.init] [--uci openwrt/porch/files/porch.uci] \
-#       [--arch noarch] --out dist/porch_1.1.0_openwrt_x86_64.apk
+#       [--arch noarch] --out dist/porch_1.1.1_openwrt_x86_64.apk
 #
-#   sh scripts/make_apk.sh luci --version 1.1.0 [--src openwrt/luci-app-porch] \
-#       --out dist/luci-app-porch_1.1.0_all.apk
+#   sh scripts/make_apk.sh luci --version 1.1.1 [--src openwrt/luci-app-porch] \
+#       --out dist/luci-app-porch_1.1.1_all.apk
 #
 # 环境变量:
 #   APK_BIN      apk 可执行文件路径（默认 PATH 里的 apk）
@@ -33,8 +33,8 @@ URL="https://github.com/likz0421/porch"
 usage() {
 	cat >&2 <<'U'
 用法:
-  sh scripts/make_apk.sh porch --binary <二进制> --version 1.1.0 [--arch noarch] --out <输出>
-  sh scripts/make_apk.sh luci  --version 1.1.0 [--src <LuCI 源码目录>] --out <输出>
+  sh scripts/make_apk.sh porch --binary <二进制> --version 1.1.1 [--arch noarch] --out <输出>
+  sh scripts/make_apk.sh luci  --version 1.1.1 [--src <LuCI 源码目录>] --out <输出>
 
 环境变量: APK_BIN（apk 可执行文件）STAGE_ONLY=1（只准备文件树，不调 mkpkg）
 U
@@ -53,7 +53,7 @@ sha256_of() {
 apk_version() {
 	case "$1" in
 		*-r*) printf '%s' "$1" ;;   # 已经是 X.Y.Z-rN
-		*)    printf '%s-r0' "$1" ;; # 1.1.0 → 1.1.0-r0
+		*)    printf '%s-r0' "$1" ;; # 1.1.1 → 1.1.1-r0
 	esac
 }
 
