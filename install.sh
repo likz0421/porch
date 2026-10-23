@@ -686,19 +686,34 @@ apply_port() {
 	[ -n "$_up" ] || _up=$DEFAULT_PORT
 
 	if grep -q '"adminWebListenPort"' "$_bj" 2>/dev/null; then
-		# sed -i.bak 是 BSD/GNU 都认的写法（BSD 的 -i 必须带后缀）
-		if sed -i.bak -e "s/\"adminWebListenPort\"[[:space:]]*:[[:space:]]*[0-9]\+/\"adminWebListenPort\": $_up/" "$_bj" 2>/dev/null; then
-			rm -f "$_bj.bak" 2>/dev/null || true
+		# 改已有键。正则用 [0-9][0-9]*（POSIX），GNU 的 \+ 在 macOS/BSD sed 上
+		# 不报错但静默不匹配——所以替换完必须 grep 复核，不能只看退出码。
+		sed -i.bak -e "s/\"adminWebListenPort\"[[:space:]]*:[[:space:]]*[0-9][0-9]*/\"adminWebListenPort\": $_up/" "$_bj" 2>/dev/null
+		rm -f "$_bj.bak" 2>/dev/null || true
+		if grep -q "\"adminWebListenPort\"[[:space:]]*:[[:space:]]*$_up" "$_bj" 2>/dev/null; then
 			ok "管理端口已更新为 ${_up}（$CONF_DIR/base.json）"
 		else
 			warn "改不了 $_bj 里的端口，改用服务参数 -p $_up 兜底"; [ -n "$PORT" ] && PORT_ARG="-p $PORT"
 		fi
 	else
-		# base.json 里还没有这个键：在第一个 { 后面插一行
-		if sed -i.bak -e "1s/{/{\n  \"adminWebListenPort\": $_up,/" "$_bj" 2>/dev/null; then
-			rm -f "$_bj.bak" 2>/dev/null || true
+		# base.json 里还没有这个键：用 awk 在第一个 { 后面插一行。
+		# 不用 sed 的 \n——那是各实现差异最大的地方，awk 是 POSIX 全平台一致。
+		awk -v v="$_up" '
+			BEGIN { done = 0 }
+			{
+				if (!done && $0 ~ /\{/) {
+					print
+					print "  \"adminWebListenPort\": " v ","
+					done = 1
+					next
+				}
+				print
+			}' "$_bj" >"$_bj.new" && [ -s "$_bj.new" ] && mv "$_bj.new" "$_bj"
+		if [ -s "$_bj.new" ] || grep -q '"adminWebListenPort"' "$_bj" 2>/dev/null; then
+			rm -f "$_bj.new" 2>/dev/null || true
 			ok "管理端口已写入 $CONF_DIR/base.json: $_up"
 		else
+			rm -f "$_bj.new" 2>/dev/null || true
 			warn "改不了 ${_bj}，改用服务参数 -p $_up 兜底"; [ -n "$PORT" ] && PORT_ARG="-p $PORT"
 		fi
 	fi

@@ -361,6 +361,10 @@ jobs:
       - name: apk del 卸载（确认能干净删掉）
         run: |
           set -e
+          # 先删界面包再删后端：luci-app-porch 依赖 porch，直接 del porch 会被
+          # apk 拒绝（"not removed due to: luci-app-porch"）——这正是依赖链在起作用，
+          # install.sh 的卸载流程也是先摘 LuCI 再摘后端。
+          sudo chroot /mnt/owrt /bin/sh -c 'apk del luci-app-porch 2>/dev/null || echo "(luci-app-porch 未装，跳过)"'
           sudo chroot /mnt/owrt /bin/sh -c 'apk del porch'
           sudo chroot /mnt/owrt /bin/sh -c '
             set -e
@@ -371,6 +375,11 @@ jobs:
               echo "FAIL: 卸载后残留 /etc/rc.d/S99porch"; ls -la /etc/rc.d/ | grep -i porch; exit 1
             fi
             echo "OK: 没有残留 rc.d 链接"
+            # LuCI 界面文件也要一并收干净
+            if [ -e /usr/share/luci/menu.d/luci-app-porch.json ]; then
+              echo "FAIL: 卸载后残留 LuCI 菜单"; exit 1
+            fi
+            echo "OK: LuCI 界面文件已随包删除"
             # conffiles 里的 /etc/config/porch 按 apk 规则应保留
             [ -f /etc/config/porch ] && echo "OK: conffile /etc/config/porch 按规则保留" || echo "(conffile 已被一并删除)"
           '
