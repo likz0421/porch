@@ -244,7 +244,7 @@ function playEnter() {
 
 function demoState() {
   return {
-    base: { adminWebListenPort: 16601, adminAccount: '666', adminPassword: '666', allowInternetAccess: false, sessionTimeout: 7200, logLevel: 'info', autoStart: true },
+    base: { adminWebListenPort: 5200, adminAccount: '666', adminPassword: '666', allowInternetAccess: false, sessionTimeout: 7200, logLevel: 'info', autoStart: true },
     ddns: [
       { key: 'ddns-1', enable: true, name: '家里宽带', provider: 'cloudflare', domain: 'example.com', subDomain: 'home', recordType: 'A', ipType: 'ipv4', ipSource: 'api', checkInterval: 300, ttl: 600, currentIP: '203.0.113.7', status: '运行中', lastUpdate: '2026-10-23 06:55:32', updateCount: 12 },
       { key: 'ddns-2', enable: true, name: 'NAS IPv6', provider: 'alidns', domain: 'example.com', subDomain: 'nas', recordType: 'AAAA', ipType: 'ipv6', ipSource: 'interface', interfaceName: 'pppoe-wan', checkInterval: 600, ttl: 600, currentIP: '2408:8207:78cc:5cf1::1', status: '运行中', lastUpdate: '2026-10-23 06:40:11', updateCount: 3 },
@@ -1167,7 +1167,7 @@ function stopLogStream() {
 function renderSettings() {
   const b = STATE.base || {};
   return '<div class="card"><div class="card-head"><h2>基础设置</h2><div class="desc">修改端口后需重启服务生效</div></div>' +
-    '<div class="row"><div class="field"><label>管理端口</label><input id="s_port" type="number" value="' + num(b.adminWebListenPort, 16601) + '"></div>' +
+    '<div class="row"><div class="field"><label>管理端口</label><input id="s_port" type="number" value="' + num(b.adminWebListenPort, 5200) + '"></div>' +
     '<div class="field"><label>登录账号</label><input id="s_user" value="' + esc(b.adminAccount || '') + '"></div></div>' +
     '<div class="row"><div class="field"><label>登录密码</label><input id="s_pass" type="text" value="' + esc(b.adminPassword || '') + '"></div>' +
     '<div class="field"><label>会话超时(秒)</label><input id="s_timeout" type="number" value="' + num(b.sessionTimeout, 7200) + '"></div></div>' +
@@ -1238,7 +1238,7 @@ async function doImport(apply) {
 
 async function saveSettings() {
   const body = {
-    adminWebListenPort: parseInt($('s_port').value, 10) || 16601,
+    adminWebListenPort: parseInt($('s_port').value, 10) || 5200,
     adminAccount: $('s_user').value.trim(),
     adminPassword: $('s_pass').value,
     allowInternetAccess: $('s_internet').checked,

@@ -3,7 +3,7 @@
 // 用法:
 //
 //	porch -cd /etc/porch/porchconf    指定配置目录（不存在时自动创建）
-//	porch -p 16601                    临时指定管理端口
+//	porch -p 5200                    临时指定管理端口
 //	porch -v                          查看版本
 package main
 

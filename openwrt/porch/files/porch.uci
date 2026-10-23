@@ -1,5 +1,5 @@
 config porch 'main'
 	option enabled '1'
 	option config_dir '/etc/porch/porchconf'
-	# 留空则使用程序配置中的端口（默认 16601）
+	# 留空则使用程序配置中的端口（默认 5200）
 	option port ''

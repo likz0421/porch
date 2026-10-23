@@ -5,7 +5,7 @@ Porch 门廊 · Windows 版（动态域名 / HTTPS 证书 / 反向代理）
   或直接运行 porch.exe（默认配置目录为程序同目录的 porchconf）
 
 【访问】
-  浏览器打开 http://127.0.0.1:16601
+  浏览器打开 http://127.0.0.1:5200
   默认账号 666  密码 666（登录后请到「系统设置」改掉）
 
 【上手三步】
@@ -20,7 +20,7 @@ Porch 门廊 · Windows 版（动态域名 / HTTPS 证书 / 反向代理）
 
 【防火墙】
   局域网其他设备访问时，需在管理员命令行放行端口：
-  netsh advfirewall firewall add rule name="Porch" dir=in action=allow protocol=TCP localport=16601
+  netsh advfirewall firewall add rule name="Porch" dir=in action=allow protocol=TCP localport=5200
 
 【申请 SSL 证书】
   ACME 的 HTTP-01 需要监听 80 端口，Windows 上 1024 以下端口需要管理员权限，

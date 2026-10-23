@@ -35,7 +35,7 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $Repo = if ($env:PORCH_REPO) { $env:PORCH_REPO } else { 'likz0421/porch' }
 $BinName = 'porch'
-$DefaultPort = 16601
+$DefaultPort = 5200
 $Base = "https://github.com/$Repo/releases/download"
 $script:MirrorOrder = $null
 
@@ -412,7 +412,15 @@ try {
     Write-Ok "自检通过: $out"
 
     New-Item -ItemType Directory -Path $ConfDir -Force | Out-Null
-    if ($Port -gt 0) { Set-ConfigPort $Port }
+    # 端口规则：-Port 给了用它；配置里已有明确端口保持不动；否则写默认值，
+    # 避免「脚本提示 5200、程序实际听 16601」两边对不上
+    $effPort = $Port
+    if ($effPort -le 0) {
+        $bj = Join-Path $ConfDir 'base.json'
+        $hasKey = (Test-Path $bj) -and (Select-String -Path $bj -Pattern '"adminWebListenPort"' -Quiet)
+        if (-not $hasKey) { $effPort = $DefaultPort }
+    }
+    if ($effPort -gt 0) { Set-ConfigPort $effPort }
 
     if (-not $NoPath) {
         $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

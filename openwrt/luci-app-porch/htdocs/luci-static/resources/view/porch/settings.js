@@ -25,7 +25,7 @@ return view.extend({
 		o.default = '';
 		o.datatype = 'port';
 		o.optional = true;
-		o.description = _('留空则用程序内设置的端口（默认 16601）。这里填了会作为启动参数固定住，' +
+		o.description = _('留空则用程序内设置的端口（默认 5200）。这里填了会作为启动参数固定住，' +
 			'优先级高于程序内设置；改完需重启服务。');
 
 		// 账号密码、外网访问开关、日志级别这些是程序运行时配置，

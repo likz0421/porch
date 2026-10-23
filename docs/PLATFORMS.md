@@ -219,7 +219,7 @@ grep -m1 -iE 'model name|Processor|system type|cpu model' /proc/cpuinfo   # ③ 
 | CPU | 见上表，无 SSE/NEON 等额外指令集要求 |
 | 运行时依赖 | **无**。静态二进制，不需要 libc / Go / Node / 数据库 |
 | 磁盘 | 程序约 7 MB，配置与证书按任务数增长（每张证书约 6 KB） |
-| 端口 | 管理界面默认 **16601/TCP**；申请证书需要 **80/TCP** 能从公网访问 |
+| 端口 | 管理界面默认 **5200/TCP**；申请证书需要 **80/TCP** 能从公网访问 |
 | 权限 | 装到系统目录需 root；普通用户可用 `--user` 装到 `~/.local/bin`（此时 80 端口需另行授权） |
 | 内存 | 常驻约 15–30 MB |
 
@@ -234,4 +234,4 @@ grep -m1 -iE 'model name|Processor|system type|cpu model' /proc/cpuinfo   # ③ 
   [INSTALL.md 的 4.2 节](INSTALL.md#42-openwrt)。
 - `/tmp` 在部分固件上是 `noexec`，所以安装脚本把临时目录放在**安装目录下面**，
   而不是 `/tmp`——否则下载下来的二进制无法自检。
-- 管理界面 16601 端口默认只监听所有地址；是否允许公网访问由程序内的开关控制（默认拒绝公网来源）。
+- 管理界面 5200 端口默认只监听所有地址；是否允许公网访问由程序内的开关控制（默认拒绝公网来源）。

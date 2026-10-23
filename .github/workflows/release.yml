@@ -183,9 +183,9 @@ jobs:
       - name: 启动并访问 /api/ping
         run: |
           set -e
-          "$BIN" -cd /tmp/porch-smoke/porchconf -p 16601 >/tmp/porch.log 2>&1 &
+          "$BIN" -cd /tmp/porch-smoke/porchconf -p 5200 >/tmp/porch.log 2>&1 &
           for i in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:16601/api/ping > /tmp/ping.json 2>/dev/null; then break; fi
+            if curl -fsS http://127.0.0.1:5200/api/ping > /tmp/ping.json 2>/dev/null; then break; fi
             sleep 1
           done
           cat /tmp/ping.json

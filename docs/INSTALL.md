@@ -83,7 +83,7 @@ sh install.sh -h
 | `-v, --version VER` | 安装指定版本，如 `1.1.0` 或 `v1.1.0`；默认最新 |
 | `-d, --dir DIR` | 程序安装目录，默认 `/usr/local/bin`（OpenWrt 自动用 `/usr/bin`）|
 | `-c, --conf DIR` | 配置目录，默认 `/etc/porch/porchconf` |
-| `-p, --port PORT` | 管理端口，默认 `16601`。**不给会交互问一次**（回车即默认）|
+| `-p, --port PORT` | 管理端口，默认 `5200`。**不给会交互问一次**（回车即默认）|
 | `--file PATH` | 从本地 `tar.gz` 安装，全程不联网（离线机 / 内网 / 已下好的包）|
 | `--mirror LIST` | 下载镜像，逗号分隔。空串表示直连。例：`--mirror ",https://ghfast.top/"` |
 | `--probe` | 先给每个镜像**实测测速**，按耗时排序再下载（大陆网络推荐）|
@@ -149,7 +149,7 @@ sudo sh install.sh -y
   只保留 `CAP_NET_BIND_SERVICE`（监听 80 用）、`ProtectSystem=full`、`PrivateTmp`、
   只有配置目录可写
 - 没有 systemd 时依次尝试 OpenRC / sysvinit
-- 端口 80 与 16601 记得放行：`ufw allow 80,16601/tcp` 或 `firewall-cmd --add-port=80/tcp --add-port=16601/tcp`
+- 端口 80 与 5200 记得放行：`ufw allow 80,5200/tcp` 或 `firewall-cmd --add-port=80/tcp --add-port=5200/tcp`
 
 ### 4.2 OpenWrt
 
@@ -342,7 +342,7 @@ install -m 755 porch_1.1.0_linux_arm64/porch /usr/local/bin/porch
 | `无法创建目录 /usr/local/bin` | 没用 root。`sudo sh install.sh -y`，或加 `--user` |
 | OpenWrt 上 `porch: not found` | 装到了 `/usr/local/bin` 但 PATH 里没有。用 `--dir /usr/bin` 重装，或 `ln -s` |
 | `Illegal instruction` | MIPS/ARM 浮点或指令集不匹配。脚本已自动回退 softfloat；手工安装时请核对 §2.3 表 |
-| 装了但打不开管理界面 | `systemctl status porch` / `logread \| grep porch` 看原因；确认 16601 端口未被占用；确认防火墙放行 |
+| 装了但打不开管理界面 | `systemctl status porch` / `logread \| grep porch` 看原因；确认 5200 端口未被占用；确认防火墙放行 |
 | 证书申请一直失败 | HTTP-01 需要 80 端口从公网可达、域名已解析到本机；路由器上要做 80 端口转发 |
 | 旧设备报 `certificate verify failed` | 设备 CA 太旧。临时用 `--insecure` 装（不推荐长期使用），或先 `opkg install ca-bundle` |
 | 重装后配置"丢了" | 配置在 `/etc/porch/porchconf`（旧版 `luckyconf` 会被自动沿用）。`--purge` 才会删 |

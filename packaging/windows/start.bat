@@ -11,7 +11,7 @@ echo.
 
 if not exist "%~dp0porchconf" mkdir "%~dp0porchconf"
 
-set PORT=16601
+set PORT=5200
 
 echo   管理页面 http://127.0.0.1:%PORT%/  默认账号 666 密码 666
 echo   关闭本窗口即停止服务

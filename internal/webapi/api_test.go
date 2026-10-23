@@ -202,7 +202,7 @@ func TestStateContainsAllModules(t *testing.T) {
 	if err := json.Unmarshal(ev.Data, &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.Base.AdminWebListenPort != 16601 {
+	if d.Base.AdminWebListenPort != 5200 {
 		t.Errorf("默认端口不符: %d", d.Base.AdminWebListenPort)
 	}
 	if d.System == nil {

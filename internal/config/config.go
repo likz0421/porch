@@ -178,7 +178,7 @@ func (s *Store) Load() error {
 	} else {
 		// 兼容旧配置缺少默认值的场景
 		if c.Base.AdminWebListenPort == 0 {
-			c.Base.AdminWebListenPort = 16601
+			c.Base.AdminWebListenPort = 5200
 		}
 		if c.Base.AdminAccount == "" {
 			c.Base.AdminAccount = "666"
@@ -198,7 +198,7 @@ func (s *Store) Load() error {
 func defaultConfig() Config {
 	return Config{
 		Base: BaseConfig{
-			AdminWebListenPort:  16601,
+			AdminWebListenPort:  5200,
 			AdminAccount:        "666",
 			AdminPassword:       "666",
 			AllowInternetAccess: false,

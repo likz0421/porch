@@ -22,7 +22,7 @@ set -u
 REPO="${PORCH_REPO:-likz0421/porch}"
 PROJECT="Porch"
 BIN_NAME="porch"
-DEFAULT_PORT="16601"
+DEFAULT_PORT="5200"
 
 # 安装位置（Linux/FreeBSD 用 /usr/local，OpenWrt 用 /usr，符合各自习惯）
 INSTALL_DIR="${PORCH_DIR:-}"
@@ -102,7 +102,7 @@ Porch 门廊 · 一键在线安装
   -v, --version VER    安装指定版本（如 1.1.0 或 v1.1.0；默认最新）
   -d, --dir DIR        程序安装目录（默认 /usr/local/bin）
   -c, --conf DIR       配置目录（默认 /etc/porch/porchconf）
-  -p, --port PORT      管理端口（默认 16601；安装时不给会交互问一次，回车即默认）
+  -p, --port PORT      管理端口（默认 5200；安装时不给会交互问一次，回车即默认）
                        已装过的情况下单独给 -p 只改端口，不重新下载二进制
       --file PATH      从本地 tar.gz 安装（离线 / 内网 / 已下载好的包）
       --mirror LIST    下载镜像，逗号分隔；空串表示只走直连
@@ -628,7 +628,7 @@ verify_binary() {
 }
 
 # ------------------------------- 端口 ---------------------------------------
-# 端口不写死：默认 16601，但 -p / 交互输入 / UCI / LuCI 设置页都能改。
+# 端口不写死：默认 5200，但 -p / 交互输入 / UCI / LuCI 设置页都能改。
 # 真正落到两个地方：① 服务启动参数 -p（systemd/procd/rc.d/launchd）
 #                   ② OpenWrt 的 /etc/config/porch 里的 option port
 # 程序配置文件里的 AdminWebListenPort 不用动——命令行 -p 优先级高于它。
@@ -662,34 +662,44 @@ service_port() {
 # 把端口落进程序配置 base.json —— 这是「不写死」的关键：
 # 服务启动参数里不带 -p，所以以后在网页「系统设置 → 管理端口」里改的端口
 # 重启后能真正生效，不会被安装时的一个参数永久压住。
+# 规则：-p 给了用它；配置里已有明确端口就保持不动；两者都没有就写默认值，
+#       避免「脚本提示 5200、程序实际听 16601」这种两边对不上的情况。
 apply_port() {
-	[ -n "$PORT" ] || return 0
-	[ "$DRY_RUN" = 0 ] || { info "[dry-run] 把管理端口 $PORT 写入 $CONF_DIR/base.json"; return 0; }
-	mkdir -p "$CONF_DIR" 2>/dev/null || { warn "无法创建配置目录 $CONF_DIR，端口未写入配置"; return 0; }
+	[ "$DRY_RUN" = 0 ] || { info "[dry-run] 管理端口 $([ -n "$PORT" ] && echo "$PORT" || echo "默认 $DEFAULT_PORT") 写入 $CONF_DIR/base.json"; return 0; }
+	mkdir -p "$CONF_DIR" 2>/dev/null || { [ -z "$PORT" ] || warn "无法创建配置目录 $CONF_DIR，端口未写入配置"; return 0; }
 	_bj="$CONF_DIR/base.json"
+	_up="$PORT"
+
 	if [ ! -f "$_bj" ]; then
+		[ -n "$_up" ] || _up=$DEFAULT_PORT
 		# 只写端口一个键就够：程序加载时缺的字段自动用默认值补齐
-		printf '{\n  "adminWebListenPort": %s\n}\n' "$PORT" >"$_bj" || {
-			warn "写入 $_bj 失败，改用服务参数 -p $PORT 兜底"; PORT_ARG="-p $PORT"; return 0; }
+		printf '{\n  "adminWebListenPort": %s\n}\n' "$_up" >"$_bj" || {
+			warn "写入 $_bj 失败，改用服务参数 -p $_up 兜底"; [ -n "$PORT" ] && PORT_ARG="-p $PORT"; return 0; }
 		chmod 600 "$_bj" 2>/dev/null || true
-		ok "管理端口已写入 $CONF_DIR/base.json: $PORT"
+		ok "管理端口已写入 $CONF_DIR/base.json: $_up"
 		return 0
 	fi
+
+	if [ -z "$PORT" ] && grep -q '"adminWebListenPort"' "$_bj" 2>/dev/null; then
+		return 0    # 配置里已有明确端口，用户没要求改，别动
+	fi
+	[ -n "$_up" ] || _up=$DEFAULT_PORT
+
 	if grep -q '"adminWebListenPort"' "$_bj" 2>/dev/null; then
 		# sed -i.bak 是 BSD/GNU 都认的写法（BSD 的 -i 必须带后缀）
-		if sed -i.bak -e "s/\"adminWebListenPort\"[[:space:]]*:[[:space:]]*[0-9]\+/\"adminWebListenPort\": $PORT/" "$_bj" 2>/dev/null; then
+		if sed -i.bak -e "s/\"adminWebListenPort\"[[:space:]]*:[[:space:]]*[0-9]\+/\"adminWebListenPort\": $_up/" "$_bj" 2>/dev/null; then
 			rm -f "$_bj.bak" 2>/dev/null || true
-			ok "管理端口已更新为 $PORT（$CONF_DIR/base.json）"
+			ok "管理端口已更新为 $_up（$CONF_DIR/base.json）"
 		else
-			warn "改不了 $_bj 里的端口，改用服务参数 -p $PORT 兜底"; PORT_ARG="-p $PORT"
+			warn "改不了 $_bj 里的端口，改用服务参数 -p $_up 兜底"; [ -n "$PORT" ] && PORT_ARG="-p $PORT"
 		fi
 	else
 		# base.json 里还没有这个键：在第一个 { 后面插一行
-		if sed -i.bak -e "1s/{/{\n  \"adminWebListenPort\": $PORT,/" "$_bj" 2>/dev/null; then
+		if sed -i.bak -e "1s/{/{\n  \"adminWebListenPort\": $_up,/" "$_bj" 2>/dev/null; then
 			rm -f "$_bj.bak" 2>/dev/null || true
-			ok "管理端口已写入 $CONF_DIR/base.json: $PORT"
+			ok "管理端口已写入 $CONF_DIR/base.json: $_up"
 		else
-			warn "改不了 $_bj，改用服务参数 -p $PORT 兜底"; PORT_ARG="-p $PORT"
+			warn "改不了 $_bj，改用服务参数 -p $_up 兜底"; [ -n "$PORT" ] && PORT_ARG="-p $PORT"
 		fi
 	fi
 	return 0

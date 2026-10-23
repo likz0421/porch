@@ -80,7 +80,7 @@ sh install.sh -h             # 全部参数
 
 > **关于"参考 lucky 源码"的说明**
 > lucky 3.3.x 未开源，且 `3.3.3_xiaojv` 分发包被魔改 UPX 加壳，静态无法还原（详见 `../lucky-re/逆向分析报告.md`）。
-> 本项目**只对齐了使用习惯**（16601 端口、666/666 账号、`-cd` 配置目录、DDNS/证书/反代的功能边界与 OpenWrt 集成方式），
+> 本项目**只对齐了使用习惯**（管理端口默认 5200（Lucky 是 16601，可在网页/`-p` 改）、666/666 账号、`-cd` 配置目录、DDNS/证书/反代的功能边界与 OpenWrt 集成方式），
 > 代码为自研实现：**零第三方依赖**，仅使用 Go 标准库。版本号使用自研编号 `1.1.0`，不冒用 3.3.3。
 
 ### 0.1 Logo
@@ -178,7 +178,7 @@ Lucky 的 `.lkcf` 配置是**自加密**的（密钥随文件保存），本程�
 使用方式（Web 界面：**系统设置 → 从 Lucky 迁移**）：
 
 ```bash
-curl -X POST http://127.0.0.1:16601/api/import/lucky \
+curl -X POST http://127.0.0.1:5200/api/import/lucky \
   -H "X-Token: $TOKEN" -H 'Content-Type: application/json' \
   -d '{"dir":"/etc/lucky/luckyconf","apply":true,"keepEnabled":false}'
 ```
@@ -210,9 +210,9 @@ go build -ldflags="-s -w" -o porch .
 ./porch -cd /etc/porch/porchconf
 
 # 临时指定端口
-./porch -cd ./porchconf -p 16601
+./porch -cd ./porchconf -p 5200
 
-# 浏览器打开 http://<设备IP>:16601  账号 666 / 密码 666
+# 浏览器打开 http://<设备IP>:5200  账号 666 / 密码 666
 ```
 
 交叉编译（路由器常用架构）：
@@ -277,11 +277,11 @@ GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -ldflags="-s -w" -o porch_mip
 示例（创建一条 Cloudflare 的 DDNS）：
 
 ```bash
-TOKEN=$(curl -s -X POST http://127.0.0.1:16601/api/login \
+TOKEN=$(curl -s -X POST http://127.0.0.1:5200/api/login \
   -H 'Content-Type: application/json' -d '{"account":"666","password":"666"}' \
   | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
 
-curl -s -X POST http://127.0.0.1:16601/api/ddns \
+curl -s -X POST http://127.0.0.1:5200/api/ddns \
   -H "X-Token: $TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"家里宽带","enable":true,"provider":"cloudflare","accessKey":"<CF Token>",
        "domain":"example.com","subDomain":"home","recordType":"A","ipType":"ipv4",
@@ -370,13 +370,13 @@ porch_windows_i386.zip     (32 位)
 - 非管理员运行时会提示：ACME 的 HTTP-01 需要监听 80 端口，需右键"以管理员身份运行"
 - 局域网其他设备访问需放行防火墙：
   ```
-  netsh advfirewall firewall add rule name="porch" dir=in action=allow protocol=TCP localport=16601
+  netsh advfirewall firewall add rule name="porch" dir=in action=allow protocol=TCP localport=5200
   ```
 
 Windows 版实测（本机 Windows 10/11 环境）：
 
 - 双击 exe 不带任何参数 → 自动在 exe 同目录创建 `porchconf`
-- 冒烟测试 12/12 通过（默认端口 16601）
+- 冒烟测试 12/12 通过（默认端口 5200）
 - 中文日志正常：`[web] 账号 666 登录成功，来源 127.0.0.1`
 - 反向代理实测：`18085 → 后端 18080` 正确返回后端页面
 - 内存读取改用 `GlobalMemoryStatusEx`（此前 Windows 下显示 `x / 0 MB`）
@@ -402,7 +402,7 @@ Release 里为每个平台都准备了独立压缩包，包内是 **`porch` 单�
 
 ```bash
 tar xzf porch_1.1.0_linux_mipsle_softfloat.tar.gz
-./porch_1.1.0_linux_mipsle_softfloat/porch -cd /etc/porch/porchconf -p 16601
+./porch_1.1.0_linux_mipsle_softfloat/porch -cd /etc/porch/porchconf -p 5200
 ```
 
 完整清单（19 个 tar.gz + 2 个 Windows zip + OpenWrt 的 12 个 ipk 与 12 个 apk）与
@@ -452,7 +452,7 @@ dist/                       Windows 免安装包
 ## 7. 注意事项
 
 - ACME HTTP-01 要求 **80 端口能从公网访问**，且域名已解析到本机；路由器上需先配置端口转发。
-- 管理端口（默认 16601）修改后需重启进程生效。
+- 管理端口（默认 5200）修改后需重启进程生效。
 - 未开启"允许外网访问"时，来自公网 IP 的请求会被拒绝（返回 403），本机与局域网不受影响。
 - 证书私钥文件权限为 0600，请妥善备份配置目录。
 
@@ -522,7 +522,7 @@ cert-038db0   已签发                        ← 未被覆盖
 | windows/amd64 | 6.60 MB | 6 919 680 |
 | windows/386 | 6.32 MB | 6 625 280 |
 
-冒烟测试 `sh smoke.sh 16601 <配置目录>`：
+冒烟测试 `sh smoke.sh 5200 <配置目录>`：
 
 ```
 [PASS] 探活接口 /api/ping          [PASS] 登录获取 token
@@ -699,7 +699,7 @@ go test ./internal/webapi -v   # 单独看某个包
 ## 8. 许可与贡献
 
 本项目为自研实现，采用 **MIT** 许可（见 [LICENSE](LICENSE)）。与上游 lucky 项目（`gdy666/lucky`）**无代码继承关系**，
-只在"使用习惯"上做了对齐（16601 端口、`-cd` 配置目录、`.lkcf` 配置可迁移）。
+只在"使用习惯"上做了对齐（管理端口默认 5200（Lucky 是 16601）、`-cd` 配置目录、`.lkcf` 配置可迁移）。
 
 - 仓库：<https://github.com/likz0421/porch>
 - 问题反馈：<https://github.com/likz0421/porch/issues>（附 `porch -v`、`uname -a`、安装日志 `/var/log/porch-install.log`）

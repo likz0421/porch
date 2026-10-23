@@ -177,7 +177,7 @@ def build_porch(args):
             "License: MIT",
             "Description: Porch - DDNS / HTTPS certificate / reverse proxy",
             " 动态域名解析、ACME 证书自动签发续期、按域名与路径的 HTTP 反向代理，",
-            " 自带浅色毛玻璃 Web 管理界面（16601 端口）。",
+            " 自带浅色毛玻璃 Web 管理界面（5200 端口）。",
             "",
         ]
     )

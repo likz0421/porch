@@ -1,7 +1,7 @@
 #!/bin/sh
 # 冒烟测试：验证核心接口可用。用法: sh smoke.sh [端口] [配置目录]
 # 依赖: curl, python(仅用于解析 JSON)
-PORT=${1:-16601}
+PORT=${1:-5200}
 DIR=${2:-./porchconf}
 BASE="http://127.0.0.1:$PORT"
 PY=${PY:-python3}

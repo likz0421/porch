@@ -18,8 +18,8 @@ func TestInitCreatesDefaultConfig(t *testing.T) {
 		t.Fatalf("配置目录不符: %q", s.Dir())
 	}
 	base := s.Get().Base
-	if base.AdminWebListenPort != 16601 {
-		t.Errorf("默认端口应为 16601，实际 %d", base.AdminWebListenPort)
+	if base.AdminWebListenPort != 5200 {
+		t.Errorf("默认端口应为 5200，实际 %d", base.AdminWebListenPort)
 	}
 	if base.AdminAccount != "666" || base.AdminPassword != "666" {
 		t.Errorf("默认账号密码不正确: %q/%q", base.AdminAccount, base.AdminPassword)
@@ -102,8 +102,8 @@ func TestLoadCorruptBaseFallsBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("配置损坏时不应导致初始化失败: %v", err)
 	}
-	if got := s.Get().Base.AdminWebListenPort; got != 16601 {
-		t.Errorf("损坏配置应回退默认端口 16601，实际 %d", got)
+	if got := s.Get().Base.AdminWebListenPort; got != 5200 {
+		t.Errorf("损坏配置应回退默认端口 5200，实际 %d", got)
 	}
 }
 
@@ -183,14 +183,14 @@ func TestConcurrentUpdateAndGet(t *testing.T) {
 		go func(n int) {
 			defer wg.Done()
 			for j := 0; j < 50; j++ {
-				s.Update(func(c *Config) { c.Base.AdminWebListenPort = 16601 + n })
+				s.Update(func(c *Config) { c.Base.AdminWebListenPort = 5200 + n })
 				_ = s.Get()
 				s.SetStatus("ddns", "none", nil)
 			}
 		}(i)
 	}
 	wg.Wait()
-	if s.Get().Base.AdminWebListenPort < 16601 {
+	if s.Get().Base.AdminWebListenPort < 5200 {
 		t.Error("并发写入后配置异常")
 	}
 }
@@ -206,8 +206,8 @@ func TestRecoverPortWhenZero(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := s.Get().Base
-	if base.AdminWebListenPort != 16601 {
-		t.Errorf("端口 0 应回退 16601，实际 %d", base.AdminWebListenPort)
+	if base.AdminWebListenPort != 5200 {
+		t.Errorf("端口 0 应回退 5200，实际 %d", base.AdminWebListenPort)
 	}
 	if base.AdminAccount != "666" {
 		t.Errorf("空账号应回退 666，实际 %q", base.AdminAccount)

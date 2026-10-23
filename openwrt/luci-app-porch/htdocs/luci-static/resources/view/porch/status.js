@@ -57,7 +57,7 @@ return view.extend({
 						? E('span', { 'style': 'color:#2ba36b;font-weight:bold' }, _('运行中'))
 						: E('span', { 'style': 'color:#d9534f;font-weight:bold' }, _('已停止'))),
 					row(_('程序版本'), ping.version || '-'),
-					row(_('管理端口'), String(port || 16601)),
+					row(_('管理端口'), String(port || 5200)),
 					row(_('配置目录'), info.confDir || '-'),
 					row(_('动态域名任务'), String(ping.ddns || 0)),
 					row(_('证书任务'), String(ping.cert || 0)),
@@ -82,7 +82,7 @@ return view.extend({
 					E('button', {
 						'class': 'btn cbi-button cbi-button-positive',
 						'click': function () {
-							window.open('http://' + window.location.hostname + ':' + (port || 16601) + '/', '_blank');
+							window.open('http://' + window.location.hostname + ':' + (port || 5200) + '/', '_blank');
 						}
 					}, _('打开 Web 管理界面'))
 				])
