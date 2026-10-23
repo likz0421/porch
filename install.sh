@@ -161,7 +161,7 @@ detect_os_arch() {
 		Darwin)  OS=darwin ;;
 		FreeBSD) OS=freebsd ;;
 		MINGW*|MSYS*|CYGWIN*|Windows_NT)
-			die "当前是 Windows 环境（$_raw_os）" \
+			die "当前是 Windows 环境（${_raw_os}）" \
 			    "Windows 请用 PowerShell 安装: irm https://raw.githubusercontent.com/$REPO/main/install.ps1 | iex" ;;
 		*) die "不支持的操作系统: $_raw_os" "目前支持 Linux / macOS / FreeBSD；如需其他平台请提交 issue" ;;
 	esac
@@ -289,7 +289,15 @@ _fetch_once() { # url dest
 	esac
 }
 
-_short_host() { printf '%s' "$1" | sed -e 's|^https\?://||' -e 's|/.*$||'; }
+# 取 URL 的 host。故意不用 sed：BSD sed 不认 GNU 的 \?，
+# 会把 https://x/ 硬切成 "https:"，macOS 上就是这么翻车的。
+_short_host() {
+	_h=$1
+	case "$_h" in
+		*://*) _h=${_h#*://} ;;
+	esac
+	printf '%s' "${_h%%/*}"
+}
 
 # 人类可读的镜像顺序，例如: (直连) → ghfast.top → gh-proxy.com
 _mirror_display() {
@@ -362,7 +370,7 @@ download_asset() {
 				info "[dry-run] 下载 $url"
 				return 0
 			fi
-			info "下载 $asset  ← $host（第 $attempt 次）"
+			info "下载 $asset  ← ${host}（第 $attempt 次）"
 			if _fetch_once "$url" "$dest.part"; then
 				mv -f "$dest.part" "$dest" 2>/dev/null || { rm -f "$dest.part"; continue; }
 				ok "下载完成 $(du -h "$dest" 2>/dev/null | cut -f1)"
@@ -575,7 +583,7 @@ EOF
 install_service() {
 	[ "$NO_SERVICE" = 1 ] && { info "按 --no-service 跳过服务安装"; return 0; }
 	if [ "$USER_INSTALL" = 1 ] || [ "$IS_ROOT" = 0 ]; then
-		info "非 root 安装，跳过开机自启（需要时手动运行 $INSTALL_DIR/$BIN_NAME）"
+		info "非 root 安装，跳过开机自启（需要时手动运行 $INSTALL_DIR/${BIN_NAME}）"
 		return 0
 	fi
 	case "$INIT_SYS" in
@@ -746,7 +754,7 @@ if [ -n "$PKG_PATH" ]; then
 		ARCH=$_f_arch
 	fi
 	ASSET="${BIN_NAME}_${VER}_${OS}_${ARCH}.tar.gz"
-	ok "离线安装: $_pkg_name（版本 $VER，架构 $ARCH）"
+	ok "离线安装: ${_pkg_name}（版本 ${VER}，架构 ${ARCH}）"
 elif [ -n "$VERSION_ARG" ] && [ "$VERSION_ARG" != "latest" ]; then
 	case "$VERSION_ARG" in
 		v*) TAG="$VERSION_ARG" ;;
@@ -755,7 +763,15 @@ elif [ -n "$VERSION_ARG" ] && [ "$VERSION_ARG" != "latest" ]; then
 	VER=${TAG#v}
 else
 	step "获取最新版本"
-	TAG=$(latest_tag) || die "拿不到最新版本号" "网络可能被限制：用 -v 指定版本，或加 --mirror 指定镜像"
+	if ! TAG=$(latest_tag); then
+		# 已经装好了就别因为查不到版本号而中断——用户可能只是确认一下
+		if [ -n "$CUR_VER" ]; then
+			warn "查不到最新版本（网络受限）；当前已安装 ${CUR_VER}，未做任何修改"
+			info "要装指定版本: sh install.sh -v 1.1.0"
+			exit 0
+		fi
+		die "拿不到最新版本号" "网络可能被限制：用 -v 指定版本，或加 --mirror 指定镜像"
+	fi
 	VER=${TAG#v}
 	ok "最新版本: $TAG"
 fi
@@ -772,9 +788,9 @@ info "目标版本: ${C_BLD}v$VER${C_RESET}  目标包: $ASSET"
 
 # 同版本已安装且没 -f：直接收工（幂等，脚本可以重复跑）
 if [ -n "$CUR_VER" ] && [ "$CUR_VER" = "$VER" ] && [ "$FORCE" = 0 ] && [ "$DRY_RUN" = 0 ]; then
-	ok "已是 $VER，无需重复安装（重装请加 -f）"
+	ok "已是 ${VER}，无需重复安装（重装请加 -f）"
 	if [ -x "$BIN_PATH" ]; then info "程序: $BIN_PATH"; fi
-	info "管理界面: http://<本机IP>:$DEFAULT_PORT"
+	info "管理界面: http://<本机IP>:${PORT:-$DEFAULT_PORT}"
 	exit 0
 fi
 
@@ -859,7 +875,7 @@ if [ "$DRY_RUN" = 0 ]; then
 				verify_binary "$SRC_BIN" || die "两种浮点版本都无法运行" \
 					"请把 'uname -a' 与 '$SRC_BIN -v' 的输出提到 issue"
 				;;
-			*) die "下载的程序无法在本机运行（$ARCH）" \
+			*) die "下载的程序无法在本机运行（${ARCH}）" \
 				"可能架构识别有误；请把 'uname -a' 输出与资产名 $ASSET 提到 issue" ;;
 		esac
 	fi
@@ -895,11 +911,12 @@ if have ip; then MYIP=$(ip route get 1.1.1.1 2>/dev/null | sed -n 's/.*src \([0-
 [ -z "$MYIP" ] && MYIP="<本机IP>"
 
 step "完成"
+SHOW_PORT=${PORT:-$DEFAULT_PORT}
 cat <<EOF
 
   ${C_GRN}${C_BLD}Porch 已就绪${C_RESET}
 
-  管理界面   http://${MYIP}:${DEFAULT_PORT}
+  管理界面   http://${MYIP}:${SHOW_PORT}
   默认账号   666 / 666   ${C_YEL}（登录后第一件事：系统设置 → 改掉密码）${C_RESET}
   程序       $BIN_PATH
   配置目录   $CONF_DIR
@@ -916,6 +933,7 @@ case "$INIT_SYS" in
 	systemd) [ "$NO_SERVICE" = 0 ] && printf '    systemctl status porch           查看服务状态\n    journalctl -u porch -f           跟踪日志\n\n' ;;
 	procd)   [ "$NO_SERVICE" = 0 ] && printf '    /etc/init.d/porch status         查看服务状态\n    logread -f | grep porch          跟踪日志\n\n' ;;
 	rcng)    [ "$NO_SERVICE" = 0 ] && printf '    service porch status             查看服务状态\n\n' ;;
+	launchd) [ "$NO_SERVICE" = 0 ] && printf '    launchctl list | grep porch      查看服务状态\n    tail -f /var/log/porch.log       跟踪日志\n\n' ;;
 esac
 
 # 用户目录安装时提醒 PATH——否则装完敲 porch 会 command not found

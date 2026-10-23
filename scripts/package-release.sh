@@ -33,7 +33,7 @@ for c in python3 python; do
 done
 [ -n "$PY" ] || { echo "需要 Python 3.7+（用于组装 zip/ipk 与校验和）" >&2; exit 1; }
 
-echo "==> 版本 $VERSION，输出目录 $OUT"
+echo "==> 版本 ${VERSION}，输出目录 ${OUT}"
 if [ "$SKIP_BUILD" = 0 ]; then
 	sh build.sh "$VERSION" "$OUT"
 else

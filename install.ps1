@@ -1,9 +1,10 @@
-# =============================================================================
+﻿# =============================================================================
 #  Porch 门廊 · Windows 一键在线安装脚本
 #
 #  用法（PowerShell 5.1 或 7+）:
 #    irm https://raw.githubusercontent.com/likz0421/porch/main/install.ps1 | iex
 #    .\install.ps1 -Version 1.1.0
+#    .\install.ps1 -File .\porch_1.1.0_windows_x86_64.zip   离线安装（不联网）
 #    .\install.ps1 -Check                只做环境检测
 #    .\install.ps1 -Uninstall            卸载（加 -Purge 连配置一起删）
 #
@@ -17,6 +18,7 @@ param(
     [string]$Dir = "",
     [int]$Port = 0,
     [string]$Mirror = "",
+    [string]$File = "",
     [switch]$NoPath,
     [switch]$Uninstall,
     [switch]$Purge,
@@ -26,6 +28,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# 进度条会在非交互/重定向输出时刷出一堆 ANSI 转义垃圾，而且拖慢 Invoke-WebRequest
+$ProgressPreference = 'SilentlyContinue'
 $Repo = if ($env:PORCH_REPO) { $env:PORCH_REPO } else { 'likz0421/porch' }
 $BinName = 'porch'
 $DefaultPort = 16601
@@ -68,17 +72,39 @@ try {
 # ---------------------------- 工具 ----------------------------
 function Get-LatestTag {
     $api = "https://api.github.com/repos/$Repo/releases/latest"
+
+    # 1) 官方 API（最准）
     try {
         $r = Invoke-RestMethod -Uri $api -UseBasicParsing -TimeoutSec 15 -Headers @{ 'User-Agent' = 'porch-installer' }
         if ($r.tag_name) { return $r.tag_name }
     } catch { }
-    # 兜底：跟随 releases/latest 的重定向
+
+    # 2) 走公共加速再问一次 API
+    foreach ($p in @('https://ghfast.top/', 'https://gh-proxy.com/', 'https://ghproxy.net/')) {
+        try {
+            $r = Invoke-RestMethod -Uri "$p$api" -UseBasicParsing -TimeoutSec 20 -Headers @{ 'User-Agent' = 'porch-installer' }
+            if ($r.tag_name) { return $r.tag_name }
+        } catch { }
+    }
+
+    # 3) 兜底：不发 API 配额，直接看 releases/latest 的 302 指向哪个 tag
+    #    （老版本 PS 的 Response.Headers 在异常里可能是 null，索引会抛
+    #     "无法对 Null 数组进行索引"，所以这里层层判空）
     try {
-        $resp = Invoke-WebRequest -Uri "https://github.com/$Repo/releases/latest" -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 15 -ErrorAction SilentlyContinue
-        if ($resp.Headers.Location) { return ($resp.Headers.Location -split '/tag/')[-1] }
+        $req = [System.Net.HttpWebRequest]::Create("https://github.com/$Repo/releases/latest")
+        $req.AllowAutoRedirect = $false
+        $req.Timeout = 15000
+        $req.UserAgent = 'porch-installer'
+        $resp = $req.GetResponse()
+        $loc = $resp.Headers['Location']
+        $resp.Close()
+        if ($loc -and $loc -match '/tag/(.+)$') { return $Matches[1] }
     } catch {
-        $loc = $_.Exception.Response.Headers['Location']
-        if ($loc) { return ($loc -split '/tag/')[-1] }
+        $r2 = $_.Exception.Response
+        if ($r2 -and $r2.Headers) {
+            $loc = $r2.Headers['Location']
+            if ($loc -and $loc -match '/tag/(.+)$') { return $Matches[1] }
+        }
     }
     return $null
 }
@@ -172,16 +198,49 @@ if ($Check) {
 }
 
 # ---------------------------- 版本 ----------------------------
-if ($Version -and $Version -ne 'latest') {
+$LocalPkg = $false
+$PkgName = ""
+if ($File) {
+    if (-not (Test-Path $File)) { Fail "找不到本地安装包: $File" '确认路径拼写；相对路径以当前目录为准' }
+    $File = (Resolve-Path $File).Path
+    $LocalPkg = $true
+    $PkgName = Split-Path $File -Leaf
+    if ($PkgName -match '^porch_([0-9][0-9A-Za-z.]*)_windows_([A-Za-z0-9_]+)\.zip$') {
+        $Ver = $Matches[1]
+        $fArch = $Matches[2]
+        if ($fArch -ne $Arch) {
+            Write-Warn2 "安装包架构是 $fArch，本机识别为 $Arch"
+            Write-Info '按安装包的架构继续（-File 以文件名为准）'
+            $Arch = $fArch
+        }
+    } elseif ($Version) {
+        $Ver = $Version.TrimStart('v')
+    } else {
+        Fail "无法从文件名识别版本: $PkgName" '文件名应形如 porch_1.1.0_windows_x86_64.zip；或用 -Version 指定'
+    }
+    $Tag = "v$Ver"
+    $Asset = $PkgName
+    Write-Ok "离线安装: $PkgName（版本 $Ver，架构 $Arch）"
+} elseif ($Version -and $Version -ne 'latest') {
     $Tag = if ($Version.StartsWith('v')) { $Version } else { "v$Version" }
 } else {
     Write-Step '获取最新版本'
     $Tag = Get-LatestTag
-    if (-not $Tag) { Fail '拿不到最新版本号' '网络可能被限制：用 -Version 1.1.0 指定，或用 -Mirror 换镜像' }
+    if (-not $Tag) {
+        # 已经装好了就别因为查不到版本号而报错退出——用户本来只是想确认/升级
+        if ($CurVer) {
+            Write-Warn2 "查不到最新版本（网络受限）；当前已安装 $CurVer，未做任何修改"
+            Write-Info '要装指定版本:  .\install.ps1 -Version 1.1.0'
+            exit 0
+        }
+        Fail '拿不到最新版本号' '网络可能被限制：用 -Version 1.1.0 指定，或用 -Mirror 换镜像'
+    }
     Write-Ok "最新版本: $Tag"
 }
-$Ver = $Tag.TrimStart('v')
-$Asset = "${BinName}_${Ver}_windows_${Arch}.zip"
+if (-not $LocalPkg) {
+    $Ver = $Tag.TrimStart('v')
+    $Asset = "${BinName}_${Ver}_windows_${Arch}.zip"
+}
 
 if ($CurVer -eq $Ver -and -not $Force) {
     Write-Ok "已是 $Ver，无需重复安装（重装加 -Force）"
@@ -195,14 +254,24 @@ $Work = Join-Path $env:TEMP ("porch-install-" + [guid]::NewGuid().ToString('N').
 New-Item -ItemType Directory -Path $Work -Force | Out-Null
 
 try {
-    Write-Step '下载'
-    if (-not (Get-Asset $Asset (Join-Path $Work $Asset))) {
-        Fail "所有镜像都没能下载到 $Asset" '1) 检查网络/代理 2) -Mirror "https://ghfast.top/" 3) -Version 指定已发布版本'
+    if ($LocalPkg) {
+        Write-Step '读取本地安装包'
+        Copy-Item $File (Join-Path $Work $Asset) -Force
+        Write-Ok "已读取 $PkgName（$([math]::Round((Get-Item $File).Length / 1MB, 2)) MB）"
+    } else {
+        Write-Step '下载'
+        if (-not (Get-Asset $Asset (Join-Path $Work $Asset))) {
+            Fail "所有镜像都没能下载到 $Asset" '1) 检查网络/代理 2) -Mirror "https://ghfast.top/" 3) -Version 指定已发布版本'
+        }
     }
 
     Write-Step '校验'
     $sums = Join-Path $Work 'SHA256SUMS'
-    if (Get-Asset 'SHA256SUMS' $sums) {
+    if ($LocalPkg) {
+        $localSums = Join-Path (Split-Path $File -Parent) 'SHA256SUMS'
+        if (Test-Path $localSums) { Copy-Item $localSums $sums -Force } else { Write-Warn2 '本地包旁边没有 SHA256SUMS，跳过完整性校验' }
+    }
+    if (Test-Path $sums) {
         $want = $null
         foreach ($line in Get-Content $sums) {
             $p = $line -split '\s+'
@@ -250,7 +319,8 @@ Write-Step '完成'
 Write-Host ""
 Write-Host '  Porch 已就绪' -ForegroundColor Green
 Write-Host ''
-Write-Host "  管理界面   http://127.0.0.1:$DefaultPort"
+$ShowPort = if ($Port -gt 0) { $Port } else { $DefaultPort }
+Write-Host "  管理界面   http://127.0.0.1:$ShowPort"
 Write-Host "  默认账号   666 / 666   （登录后第一件事：系统设置 -> 改掉密码）" -ForegroundColor Yellow
 Write-Host "  程序       $BinPath"
 Write-Host "  配置目录   $ConfDir"
