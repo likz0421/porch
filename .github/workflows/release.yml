@@ -57,16 +57,31 @@ jobs:
       - name: 构建全部平台 + 组装 ipk/zip/校验和
         run: sh scripts/package-release.sh "${{ steps.v.outputs.ver }}"
 
+      # OpenWrt 25.12 起包管理器换成 apk，包格式也换成 apk-tools v3 的 ADB 容器。
+      # 没有现成发行版提供 apk-tools 3 的可执行文件，这里取 Alpine 的静态版。
+      - name: 准备 apk-tools 3（打 OpenWrt ≥25.12 的 .apk）
+        run: sh scripts/install-apk-tools.sh "$RUNNER_TEMP/aptools"
+
+      - name: 构建 OpenWrt apk 包
+        run: |
+          set -e
+          sudo -E env "APK_BIN=$RUNNER_TEMP/aptools/apk" \
+            sh scripts/build-apks.sh "${{ steps.v.outputs.ver }}"
+          python3 scripts/make_assets.py --version "${{ steps.v.outputs.ver }}" \
+            --dist dist --root . --sums-only
+
       - name: 产物自检
         run: |
           set -e
           n_tar=$(ls -1 dist/*.tar.gz | wc -l)
           n_zip=$(ls -1 dist/*.zip | wc -l)
           n_ipk=$(ls -1 dist/*.ipk | wc -l)
-          echo "tar.gz=$n_tar zip=$n_zip ipk=$n_ipk"
+          n_apk=$(ls -1 dist/*.apk | wc -l)
+          echo "tar.gz=$n_tar zip=$n_zip ipk=$n_ipk apk=$n_apk"
           [ "$n_tar" -ge 19 ] || { echo "缺少 tar.gz 资产"; exit 1; }
           [ "$n_zip" -ge 2 ]  || { echo "缺少 Windows zip"; exit 1; }
           [ "$n_ipk" -ge 12 ] || { echo "缺少 ipk 资产"; exit 1; }
+          [ "$n_apk" -ge 12 ] || { echo "缺少 apk 资产"; exit 1; }
           cd dist
           sha256sum -c SHA256SUMS --quiet && echo "校验和全部通过"
           # Windows 包里必须是 porch.exe，不能是裸 porch
@@ -75,6 +90,30 @@ jobs:
       - name: ipk 结构自检
         run: python3 scripts/verify_ipk.py dist/*.ipk
 
+      - name: apk 结构自检（ADB magic + adbdump 解析）
+        run: |
+          set -e
+          APK="$RUNNER_TEMP/aptools/apk"
+          for f in dist/*.apk; do
+            echo "== $f"
+            magic=$(head -c 3 "$f")
+            comp=$(dd if="$f" bs=1 skip=3 count=1 2>/dev/null | tr -d '\0')
+            echo "   magic=$magic 压缩标记=$comp size=$(wc -c <"$f")"
+            # apk v3 容器头固定是 "ADB" + 1 字节压缩标记（'.' 不压 / 'd' deflate / 'c' 自定义）
+            [ "$magic" = "ADB" ] || { echo "不是 apk v3（ADB）容器: $f"; exit 1; }
+            case "$comp" in .|d|c) ;; *) echo "压缩标记异常: $comp"; exit 1 ;; esac
+            # adbdump 是 apk-tools 的调试 applet，解析成功就说明容器结构合法；
+            # 它属于未文档化命令，万一这个版本没有就只告警——真正的格式验证在
+            # 下面 openwrt-apk job 里用真 apk add 做。
+            if "$APK" adbdump "$f" >/tmp/adb.txt 2>&1; then
+              grep -E 'usr/bin/porch|www/luci-static/view|menu\.d|acl\.d' /tmp/adb.txt >/dev/null \
+                || { echo "包里没看到预期文件: $f"; exit 1; }
+              echo "   adbdump 解析通过，且包含预期文件"
+            else
+              echo "   ! adbdump 不可用（该 apk 版本可能未编译此 applet），跳过内容检查"
+            fi
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: porch-assets
@@ -82,6 +121,7 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/*.ipk
+            dist/*.apk
             dist/SHA256SUMS
           retention-days: 7
 
@@ -97,6 +137,7 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/*.ipk
+            dist/*.apk
             dist/SHA256SUMS
           body: |
             ## 安装（一条命令）
@@ -183,3 +224,74 @@ jobs:
           done
           grep -q '"ok":true' /tmp/ping2.json
           pkill -f 'porch -cd' || true
+
+  openwrt-apk:
+    name: OpenWrt 25.12 真装（apk）
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: porch-assets
+          path: assets
+
+      # 直接拿官方的 x86/64 rootfs 解到目录里做 chroot —— 这就是一台真机的文件系统，
+      # 上面跑的就是 OpenWrt 25.12 自带的 apk，能装进去才算数。
+      - name: 准备 OpenWrt 25.12 rootfs
+        run: |
+          set -e
+          V=25.12.6
+          curl -fsSL --retry 3 -o /tmp/owrt.tar.gz \
+            "https://downloads.openwrt.org/releases/$V/targets/x86/64/openwrt-$V-x86-64-rootfs.tar.gz"
+          sudo mkdir -p /mnt/owrt
+          sudo tar xzf /tmp/owrt.tar.gz -C /mnt/owrt
+          sudo mount --bind /dev /mnt/owrt/dev
+          sudo mount -t proc proc /mnt/owrt/proc || true
+          sudo chroot /mnt/owrt /bin/sh -c 'cat /etc/openwrt_release | head -5'
+
+      - name: apk add 安装 porch
+        run: |
+          set -e
+          V="${GITHUB_REF_NAME#v}"
+          sudo cp "assets/porch_${V}_openwrt_x86_64.apk" /mnt/owrt/tmp/porch.apk
+          # --repositories-file /dev/null：不去碰官方源，纯离线装本地包
+          sudo chroot /mnt/owrt /bin/sh -c \
+            'apk add --repositories-file /dev/null --allow-untrusted /tmp/porch.apk'
+
+      - name: 校验安装结果（文件 / 记账 / 服务）
+        run: |
+          set -e
+          sudo chroot /mnt/owrt /bin/sh -c '
+            set -e
+            echo "--- 版本 ---"; /usr/bin/porch -v
+            echo "--- 文件与权限 ---"; ls -l /usr/bin/porch /etc/init.d/porch /etc/config/porch
+            echo "--- 已安装包 ---"; apk list --installed 2>/dev/null | grep -i porch || apk info 2>/dev/null | grep -i porch || echo "(查询命令不适用)"
+            echo "--- 我们写的记账文件（apk 必须原样装进去）---"
+            cat /lib/apk/packages/porch.list
+            echo "--- conffiles 登记 ---"
+            cat /lib/apk/packages/porch.conffiles
+            cat /lib/apk/packages/porch.conffiles_static
+            echo "--- 开机自启 ---"; ls -l /etc/rc.d/ | grep -i porch || echo "(未生成 rc.d 链接)"
+          '
+
+      - name: 起服务并访问 /api/ping
+        run: |
+          set -e
+          sudo chroot /mnt/owrt /bin/sh -c \
+            '/usr/bin/porch -cd /etc/porch/porchconf -p 16603 >/tmp/porch.log 2>&1 &' || true
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:16603/api/ping -o /tmp/ping3.json 2>/dev/null; then break; fi
+            sleep 1
+          done
+          cat /tmp/ping3.json
+          grep -q '"ok":true' /tmp/ping3.json
+          grep -q '"service":"porch"' /tmp/ping3.json
+          sudo pkill -f 'porch -cd' || true
+
+      - name: apk del 卸载（确认能干净删掉）
+        run: |
+          set -e
+          sudo chroot /mnt/owrt /bin/sh -c 'apk del porch'
+          sudo chroot /mnt/owrt /bin/sh -c 'test ! -f /usr/bin/porch && echo "已删除 /usr/bin/porch"'

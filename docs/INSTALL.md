@@ -1,7 +1,8 @@
 # 安装指南
 
 Porch 提供**一条命令的在线安装**，也保留了手工安装 / 离线安装的方式。
-支持范围见 [PLATFORMS.md](PLATFORMS.md)（19 个 tar.gz + 2 个 Windows zip + 12 个 ipk）。
+支持范围见 [PLATFORMS.md](PLATFORMS.md)（19 个 tar.gz + 2 个 Windows zip + OpenWrt 两套包：
+12 个 `.ipk`（≤24.10 的 opkg）与 12 个 `.apk`（≥25.12 的 apk））。
 
 ---
 
@@ -54,7 +55,7 @@ irm https://raw.githubusercontent.com/likz0421/porch/main/install.ps1 | iex
 1. **环境检测**：操作系统、CPU 架构、发行版、init 系统（systemd / procd / OpenRC / rc.d / launchd）、
    包管理器、可用的下载工具（curl / wget / uclient-fetch）、校验工具（sha256sum / shasum / openssl）
 2. **解析版本**：默认取 GitHub 最新 tag；`-v` 可指定任意已发布版本
-3. **选包**：按 `uname -s` + `uname -m` 映射到对应资产名（映射表见 [PLATFORMS.md](PLATFORMS.md#3-各架构怎么选脚本会自动判断这里是查表用)）
+3. **选包**：按 `uname -s` + `uname -m` 映射到对应资产名（映射表见 [PLATFORMS.md](PLATFORMS.md#4-各架构怎么选脚本会自动判断这里是查表用)）
 4. **磁盘与权限检查**：剩余空间 ≥ 30 MB；安装目录可创建、可写入（不可写时提示用 sudo 或 `--user`）
 5. **下载**：先直连，失败自动切镜像；每个源重试 3 次（1s/2s/4s 退避）
 6. **校验**：用 Release 里的 `SHA256SUMS` 比对，不一致直接中止
@@ -129,27 +130,59 @@ sudo sh install.sh -y
 
 ### 4.2 OpenWrt
 
-**方式一：脚本（推荐，能自动选对 mips/arm 的浮点版本）**
+先说清楚一件事：**OpenWrt 现在有两个时代，包格式不通用。**
+
+| OpenWrt 版本 | 包管理器 | 包格式 | 命令 |
+|---|---|---|---|
+| 24.10 及更早 | `opkg` | `.ipk` | `opkg install xxx.ipk` |
+| **25.12 及更新** | **`apk`** | **`.apk`**（apk-tools v3 / ADB 容器） | `apk add --allow-untrusted xxx.apk` |
+
+先确认自己是哪一种：
+
+```sh
+cat /etc/openwrt_release | grep -E 'DISTRIB_RELEASE|DISTRIB_ARCH'
+command -v apk && echo "→ apk 时代（25.12+）" || echo "→ opkg 时代（≤24.10）"
+```
+
+**方式一：脚本（推荐，两个时代都适用）**
 
 ```sh
 ssh root@192.168.1.1
 wget -qO- https://raw.githubusercontent.com/likz0421/porch/main/install.sh | sh
 ```
 
-脚本会：装到 `/usr/bin/porch` → 写 `/etc/config/porch` 与 `/etc/init.d/porch`（procd）→
-`/etc/init.d/porch enable && restart`。
+脚本**完全不用包管理器**：下载对应架构的静态二进制 → 放 `/usr/bin/porch` →
+写 `/etc/config/porch` 与 `/etc/init.d/porch`（procd）→ `enable && restart`。
+所以 opkg 的老机器和 apk 的新机器用的是同一条命令。
 
-**方式二：opkg 装 ipk**
+**方式二：apk 装（OpenWrt 25.12+）**
+
+```sh
+apk add --repositories-file /dev/null --allow-untrusted /tmp/porch_1.1.0_openwrt_arm64.apk
+apk add --repositories-file /dev/null --allow-untrusted /tmp/luci-app-porch_1.1.0_all.apk   # 想要 LuCI 界面
+```
+
+> 文件名里的架构后缀是 **Go 的架构名**（`arm64` / `armv7` / `mipsle_hardfloat`…），
+> 不是 OpenWrt 的子目标名，**别去下 `..._aarch64_cortex-a53.apk`，没有这个文件**。
+> 你该用哪个后缀，`uname -m` 一查便知，见下面最后一小节。
+
+- `--allow-untrusted` 是必须的：我们的包没有 OpenWrt 官方签名，apk 默认拒绝未签名包（opkg 则不管）。
+- `--repositories-file /dev/null` 让 apk 别先去联网更新官方源（离线/内网环境很有用，不加会先 `fetch ... packages.adb`）。
+- 装完 `/etc/init.d/porch enable` 已在 `post-install` 里做过，`/etc/init.d/porch start` 即可。
+- 卸载：`apk del porch`（配置 `/etc/config/porch` 按 conffiles 规则处理）。
+
+**方式三：opkg 装（OpenWrt 24.10 及更早）**
 
 ```sh
 opkg install porch_1.1.0_openwrt_mipsle_hardfloat.ipk
 opkg install luci-app-porch_1.1.0_all.ipk     # 想要 LuCI 界面时再装这个
 ```
 
-ipk 的 `Architecture` 是 `all`（与上游 Lucky 一致），所以任何板型都能装；
-装完用 `/etc/init.d/porch status` 确认，LuCI 界面在 **服务 → Porch 门廊**。
+ipk 的 `Architecture`、apk 的 `arch` 都写的是 `all` / `noarch`（与上游 Lucky 一致），
+所以任何板型都能装——代价是装错架构包管理器不会拦，因此两个包的安装后脚本都会
+**实跑一次 `porch -v`**，跑不通会明确告诉你"很可能装错了架构包"。
 
-**方式三：手工**
+**方式四：手工**
 
 ```sh
 tar xzf porch_1.1.0_linux_mipsle_softfloat.tar.gz
@@ -159,6 +192,13 @@ chmod +x /etc/init.d/porch && /etc/init.d/porch enable && /etc/init.d/porch rest
 ```
 
 > OpenWrt 上**不要**把二进制放在 `/tmp` 或 `/var`（重启即丢），也不建议放 `/root`。
+>
+> 装完 LuCI 界面在 **服务 → Porch 门廊**。`.apk` 的 LuCI 包同样要 `--allow-untrusted`。
+
+**该选哪个架构包？** OpenWrt 的架构名（`aarch64_cortex-a53`、`arm_cortex-a7_neon-vfpv4`、
+`mipsel_24kc`…）比 Go 的架构名细得多，对照表见
+[docs/PLATFORMS.md 的「OpenWrt 架构名怎么对上」](PLATFORMS.md#3-openwrt-架构名怎么对上)。
+一句话：`uname -m` 就能定，`armv8` 一律当 `arm64`，`armv8l` 是 32 位用户态、选 `armv7`。
 
 ### 4.3 macOS
 

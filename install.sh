@@ -231,6 +231,19 @@ detect_pkgmgr() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# OpenWrt 有两个时代：24.10 及更早用 opkg（.ipk），25.12 起换成 apk（.apk）。
+# 本脚本两种都不依赖——直接把静态二进制放进去、自己写 procd 脚本，
+# 所以 apk 设备照样能装。这里只是认出来，好在结尾告诉用户"你还有另一条路"。
+PKG_HINT=""
+detect_openwrt_pkg() {
+	[ "$DISTRO" = openwrt ] || return 0
+	if have apk; then
+		PKG_HINT="apk（OpenWrt 25.12+）"
+	elif have opkg; then
+		PKG_HINT="opkg（OpenWrt 24.10 及更早）"
+	fi
+}
+
 DL_TOOL=""; DL_KIND=""
 detect_downloader() {
 	if have curl; then
@@ -650,6 +663,7 @@ detect_init
 detect_pkgmgr
 detect_downloader
 detect_sha
+detect_openwrt_pkg
 build_mirrors
 
 # 目录与权限：root 装系统目录，普通用户装 ~/.local
@@ -935,6 +949,8 @@ case "$INIT_SYS" in
 	rcng)    [ "$NO_SERVICE" = 0 ] && printf '    service porch status             查看服务状态\n\n' ;;
 	launchd) [ "$NO_SERVICE" = 0 ] && printf '    launchctl list | grep porch      查看服务状态\n    tail -f /var/log/porch.log       跟踪日志\n\n' ;;
 esac
+
+[ -n "$PKG_HINT" ] && printf '  包管理器   %s —— 本脚本不依赖它（直接放静态二进制）\n            想用 apk/opkg 装请看 docs/INSTALL.md 的 OpenWrt 一节\n\n' "$PKG_HINT"
 
 # 用户目录安装时提醒 PATH——否则装完敲 porch 会 command not found
 case ":$PATH:" in

@@ -9,8 +9,10 @@
 # 产物（全部落在 dist/）:
 #   porch_<ver>_<os>_<arch>.tar.gz   19 个平台
 #   porch_<ver>_windows_<arch>.zip   2 个免安装包
-#   porch_<ver>_openwrt_<arch>.ipk   11 个 OpenWrt 包
-#   luci-app-porch_<ver>_all.ipk     LuCI 界面
+#   porch_<ver>_openwrt_<arch>.ipk   11 个 OpenWrt ≤24.10（opkg）包
+#   luci-app-porch_<ver>_all.ipk     LuCI 界面（opkg）
+#   porch_<ver>_openwrt_<arch>.apk   11 个 OpenWrt ≥25.12（apk）包 —— 需要 root + apk-tools 3
+#   luci-app-porch_<ver>_all.apk     LuCI 界面（apk）
 #   SHA256SUMS                       全部资产的校验和
 set -eu
 
@@ -43,9 +45,31 @@ fi
 echo
 "$PY" scripts/make_assets.py --version "$VERSION" --dist "$OUT" --root .
 
+# ---------------------------------------------------------------------------
+# OpenWrt ≥25.12 的 .apk：必须用 apk-tools 3 的 `apk mkpkg`，而且要以 root 跑
+# （mkpkg 记录磁盘属主）。没有工具链就明确跳过，不假装成功。
+# ---------------------------------------------------------------------------
+echo
+APK_BIN=${APK_BIN:-}
+if [ -z "$APK_BIN" ] && command -v apk >/dev/null 2>&1; then APK_BIN=$(command -v apk); fi
+if [ -n "$APK_BIN" ] && "$APK_BIN" --version 2>/dev/null | grep -q '^apk-tools [3-9]'; then
+	if [ "$(id -u 2>/dev/null || echo 1)" = 0 ]; then
+		echo "==> OpenWrt apk 包（≥25.12）"
+		APK_BIN="$APK_BIN" sh scripts/build-apks.sh "$VERSION" "$OUT"
+		echo
+		"$PY" scripts/make_assets.py --version "$VERSION" --dist "$OUT" --root . --sums-only
+	else
+		echo "==> 跳过 apk 包：需要 root（mkpkg 要记录文件属主）"
+		echo "    sudo -E sh scripts/build-apks.sh $VERSION $OUT && $PY scripts/make_assets.py --version $VERSION --dist $OUT --sums-only"
+	fi
+else
+	echo "==> 跳过 apk 包：没有 apk-tools 3"
+	echo "    sh scripts/install-apk-tools.sh .apk-tools && APK_BIN=\$PWD/.apk-tools/apk sudo -E sh scripts/package-release.sh $VERSION"
+fi
+
 echo
 echo "==> 资产清单"
 ls -1sh "$OUT"/*.tar.gz "$OUT"/*.zip "$OUT"/*.ipk "$OUT"/SHA256SUMS 2>/dev/null | sed 's|^|    |'
 echo
-echo "共 $(ls -1 "$OUT"/*.tar.gz "$OUT"/*.zip "$OUT"/*.ipk 2>/dev/null | wc -l | tr -d ' ') 个可下载资产 + SHA256SUMS"
-echo "发布: gh release create v$VERSION $OUT/*.tar.gz $OUT/*.zip $OUT/*.ipk $OUT/SHA256SUMS --title \"Porch v$VERSION\""
+echo "共 $(ls -1 "$OUT"/*.tar.gz "$OUT"/*.zip "$OUT"/*.ipk "$OUT"/*.apk 2>/dev/null | wc -l | tr -d ' ') 个可下载资产 + SHA256SUMS"
+echo "发布: gh release create v$VERSION $OUT/*.tar.gz $OUT/*.zip $OUT/*.ipk $OUT/*.apk $OUT/SHA256SUMS --title \"Porch v$VERSION\""

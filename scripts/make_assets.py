@@ -4,9 +4,13 @@
 输入：dist/porch_<ver>_*.tar.gz（由 build.sh 生成）
 输出：
   · porch_<ver>_windows_<arch>.zip   — Windows 免安装包（exe + 启动脚本 + 说明）
-  · porch_<ver>_openwrt_<arch>.ipk   — OpenWrt 包（共 11 个架构）
-  · luci-app-porch_<ver>_all.ipk     — LuCI 界面包
+  · porch_<ver>_openwrt_<arch>.ipk   — OpenWrt ≤24.10（opkg）包，11 个架构
+  · luci-app-porch_<ver>_all.ipk     — LuCI 界面包（opkg）
   · SHA256SUMS                       — 全部资产的校验和
+
+.apk（OpenWrt ≥25.12 / apk）不在本脚本里生成：apk v3 是 ADB 二进制容器，
+必须调 apk-tools 3 的 `apk mkpkg`，见 scripts/build-apks.sh。本脚本最后一遍
+写 SHA256SUMS 时会自动把它们一起算进去（--sums-only 用于补算）。
 
 只依赖 stdlib，Windows/Linux/macOS 都能跑（CI 里也是这一步）。
 """
@@ -124,7 +128,7 @@ def write_sums(dist):
     names = sorted(
         n
         for n in os.listdir(dist)
-        if n.endswith((".tar.gz", ".zip", ".ipk"))
+        if n.endswith((".tar.gz", ".zip", ".ipk", ".apk"))
     )
     lines = []
     for n in names:
@@ -144,11 +148,19 @@ def main():
     ap.add_argument("--version", required=True)
     ap.add_argument("--dist", default="dist")
     ap.add_argument("--root", default=".")
+    ap.add_argument("--sums-only", action="store_true",
+                    help="只重算 SHA256SUMS（已经生成好全部产物时用）")
     args = ap.parse_args()
 
     root = os.path.abspath(args.root)
     dist = os.path.abspath(args.dist)
     os.makedirs(dist, exist_ok=True)
+
+    if args.sums_only:
+        print("==> SHA256SUMS（仅重算）")
+        path, n = write_sums(dist)
+        print("   %s（%d 个资产）" % (path, n))
+        return
 
     print("==> Windows 免安装包")
     for arch in WIN_ARCHS:

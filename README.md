@@ -45,7 +45,7 @@ sh install.sh -h             # 全部参数
 | macOS（2） | arm64 · x86_64 |
 | FreeBSD（3） | x86_64 · i386 · arm64 |
 | Windows（2） | x86_64 · i386（另附免安装 zip）|
-| OpenWrt（11） | 与 Linux 同架构的 `.ipk`，外加 `luci-app-porch` 界面包 |
+| OpenWrt（11 × 2 种格式） | 与 Linux 同架构的 `.ipk`（**≤24.10 的 opkg**）与 `.apk`（**≥25.12 的 apk**），外加 `luci-app-porch` 界面包 |
 
 明细与"该选哪个包"的对照表见 **[docs/PLATFORMS.md](docs/PLATFORMS.md)**；
 各平台安装步骤、镜像、离线安装与排错见 **[docs/INSTALL.md](docs/INSTALL.md)**。
@@ -300,10 +300,35 @@ make menuconfig     # LuCI -> Applications -> luci-app-porch
 make package/porch/compile V=s
 ```
 
-安装方式二：直接装 IPK
+安装方式二：直接装包（**注意 OpenWrt 有两个时代，包格式不通用**）
 
 ```bash
+# OpenWrt 25.12 及更新：apk 时代（apk-tools v3 的 .apk）
+apk add --repositories-file /dev/null --allow-untrusted /tmp/porch_*.apk
+apk add --repositories-file /dev/null --allow-untrusted /tmp/luci-app-porch_*.apk
+apk del porch
+
+# OpenWrt 24.10 及更早：opkg 时代（.ipk）
 opkg install porch_*.ipk luci-app-porch_*.ipk
+opkg remove porch
+```
+
+先确认自己是哪一种：`command -v apk && echo "apk 时代" || echo "opkg 时代"`。
+
+- `--allow-untrusted` 是**必须的**：我们的包没有 OpenWrt 官方签名，apk 默认拒装未签名包
+  （opkg 不检查这个）。
+- `--repositories-file /dev/null` 让 apk 不要先去联网同步官方源，离线/内网环境必须加。
+- 文件名里的架构后缀是 Go 的架构名（`arm64` / `armv7` / `mipsle_hardfloat`…），
+  **不是** `aarch64_cortex-a53` 这种 OpenWrt 子目标名。`armv8` 一律当 `arm64`，
+  `armv8l` 是 32 位用户态、选 `armv7`——完整对照表见
+  [PLATFORMS.md 第 3 节](docs/PLATFORMS.md#3-openwrt-架构名怎么对上)。
+
+> **不想碰包管理器？** 用 `install.sh` 就行，它两个时代都不依赖：
+> 直接把静态二进制放 `/usr/bin/porch` 并自己写 procd 脚本。
+
+装完配置：
+
+```bash
 uci set porch.main.config_dir=/etc/porch/porchconf
 uci commit porch
 /etc/init.d/porch enable && /etc/init.d/porch restart
@@ -372,8 +397,8 @@ tar xzf porch_1.1.0_linux_mipsle_softfloat.tar.gz
 ./porch_1.1.0_linux_mipsle_softfloat/porch -cd /etc/porch/porchconf -p 16601
 ```
 
-完整清单（19 个 tar.gz + 2 个 Windows zip + 12 个 OpenWrt ipk）与"该选哪个"的对照表在
-**[docs/PLATFORMS.md](docs/PLATFORMS.md)**。常用的几个：
+完整清单（19 个 tar.gz + 2 个 Windows zip + OpenWrt 的 12 个 ipk 与 12 个 apk）与
+"该选哪个"的对照表在 **[docs/PLATFORMS.md](docs/PLATFORMS.md)**。常用的几个：
 
 ```
 porch_1.1.0_linux_x86_64.tar.gz        软路由 / x86 小主机 / 云服务器
@@ -383,10 +408,14 @@ porch_1.1.0_linux_mipsle_hardfloat.tar.gz  小端 MIPS + FPU（多数 MTK 路由
 porch_1.1.0_freebsd_x86_64.tar.gz      FreeBSD
 porch_1.1.0_darwin_arm64.tar.gz        Apple Silicon Mac
 porch_1.1.0_windows_x86_64.zip         Windows 免安装包（exe + 启动脚本）
+porch_1.1.0_openwrt_arm64.apk          OpenWrt 25.12+（apk）
+porch_1.1.0_openwrt_armv7.ipk          OpenWrt 24.10-（opkg）
 ```
 
 > 不带扩展名的 `porch` 就是完整程序（静态链接，不依赖 libc）；Windows 包内是 `porch.exe`。
-> 自己编译全部平台：`sh build.sh 1.1.0`；连 zip/ipk/校验和一起打：`sh scripts/package-release.sh 1.1.0`。
+> 自己编译全部平台：`sh build.sh 1.1.0`；连 zip/ipk/apk/校验和一起打：
+> `sh scripts/package-release.sh 1.1.0`（apk 那一步需要 root + apk-tools ≥ 3，脚本会自动检测，
+> 缺条件时明确打印跳过命令而不是假装成功）。
 
 ---
 
@@ -667,19 +696,23 @@ go test ./internal/webapi -v   # 单独看某个包
 - 仓库：<https://github.com/likz0421/porch>
 - 问题反馈：<https://github.com/likz0421/porch/issues>（附 `porch -v`、`uname -a`、安装日志 `/var/log/porch-install.log`）
 - 发布流程：打 `v*` tag 触发 `.github/workflows/release.yml`，自动跑测试 → 编 19 个平台 →
-  打 zip/ipk → 生成 SHA256SUMS → 建 Release → 在 Ubuntu/macOS 上真装一遍做冒烟
+  打 zip/ipk/apk → 生成 SHA256SUMS → 建 Release → 在 Ubuntu/macOS 上真装一遍做冒烟 →
+  下载 OpenWrt 25.12 官方 rootfs 做 chroot，实际 `apk add` 装一遍再 `apk del` 卸一遍
 
 ### 仓库结构
 
 ```
-install.sh                    一键在线安装（Linux/OpenWrt/macOS/FreeBSD）
-install.ps1                   Windows 一键安装
-build.sh                      交叉编译 19 个平台
-scripts/package-release.sh    组装 zip / ipk / SHA256SUMS
-scripts/make_ipk.py           ipk 打包（纯 stdlib，可复现）
-scripts/make_assets.py        Release 资产组装
-scripts/verify_ipk.py         ipk 结构自检（control 字段 / 权限位 / 文件树）
-docs/INSTALL.md               各平台安装、升级、卸载、离线与排错
-docs/PLATFORMS.md             平台矩阵与架构选型对照
-.github/workflows/release.yml 打 tag 自动构建并发布
+install.sh                       一键在线安装（Linux/OpenWrt/macOS/FreeBSD）
+install.ps1                      Windows 一键安装
+build.sh                         交叉编译 19 个平台
+scripts/package-release.sh       组装 zip / ipk / apk / SHA256SUMS
+scripts/make_ipk.py              ipk 打包（纯 stdlib，可复现）
+scripts/make_apk.sh              apk 打包（调 apk-tools 3 的 mkpkg，等价 OpenWrt package-pack.mk）
+scripts/build-apks.sh            批量打 11 架构 apk + luci apk（需 root）
+scripts/install-apk-tools.sh     取静态 apk-tools 3（只为拿它的 mkpkg）
+scripts/make_assets.py           Release 资产组装（含 --sums-only）
+scripts/verify_ipk.py            ipk 结构自检（control 字段 / 权限位 / 文件树）
+docs/INSTALL.md                  各平台安装、升级、卸载、离线与排错
+docs/PLATFORMS.md                平台矩阵与架构选型对照
+.github/workflows/release.yml    打 tag 自动构建并发布
 ```
