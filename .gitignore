@@ -31,3 +31,5 @@ Thumbs.db
 # 临时目录
 tmp/
 tmp-*/
+__pycache__/
+*.pyc
