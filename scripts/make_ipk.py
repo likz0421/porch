@@ -123,6 +123,15 @@ if [ -z "${IPKG_INSTROOT}" ] && [ -x /usr/bin/porch ]; then
 fi
 
 default_postinst $0 $@
+
+# 兜底开机自启：不同 OpenWrt 版本 default_postinst / rc.common 建 rc.d 链接的
+# 行为不完全一致，这里无条件确认一次（等价于 /etc/init.d/porch enable）。
+if [ -z "${IPKG_INSTROOT}" ] && [ -f /etc/init.d/porch ] && [ ! -L /etc/rc.d/S99porch ]; then
+	mkdir -p /etc/rc.d 2>/dev/null || true
+	ln -sf ../init.d/porch /etc/rc.d/S99porch 2>/dev/null || true
+	ln -sf ../init.d/porch /etc/rc.d/K15porch 2>/dev/null || true
+fi
+exit 0
 """
 
 PRERM = """#!/bin/sh

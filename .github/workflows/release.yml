@@ -273,7 +273,12 @@ jobs:
             echo "--- conffiles 登记 ---"
             cat /lib/apk/packages/porch.conffiles
             cat /lib/apk/packages/porch.conffiles_static
-            echo "--- 开机自启 ---"; ls -l /etc/rc.d/ | grep -i porch || echo "(未生成 rc.d 链接)"
+            echo "--- 开机自启（必须存在，否则等于装完不自启）---"
+            ls -la /etc/rc.d/ | grep -i porch || true
+            test -L /etc/rc.d/S99porch || {
+              echo "FAIL: 没有 /etc/rc.d/S99porch"; ls -la /etc/rc.d/; exit 1;
+            }
+            echo "OK: /etc/rc.d/S99porch -> $(readlink /etc/rc.d/S99porch)"
           '
 
       - name: 起服务并访问 /api/ping
@@ -294,4 +299,15 @@ jobs:
         run: |
           set -e
           sudo chroot /mnt/owrt /bin/sh -c 'apk del porch'
-          sudo chroot /mnt/owrt /bin/sh -c 'test ! -f /usr/bin/porch && echo "已删除 /usr/bin/porch"'
+          sudo chroot /mnt/owrt /bin/sh -c '
+            set -e
+            test ! -f /usr/bin/porch && echo "OK: /usr/bin/porch 已删除"
+            test ! -f /etc/init.d/porch && echo "OK: /etc/init.d/porch 已删除"
+            # rc.d 链接是 post-install 建的，pre-deinstall 必须把它收干净
+            if [ -e /etc/rc.d/S99porch ]; then
+              echo "FAIL: 卸载后残留 /etc/rc.d/S99porch"; ls -la /etc/rc.d/ | grep -i porch; exit 1
+            fi
+            echo "OK: 没有残留 rc.d 链接"
+            # conffiles 里的 /etc/config/porch 按 apk 规则应保留
+            [ -f /etc/config/porch ] && echo "OK: conffile /etc/config/porch 按规则保留" || echo "(conffile 已被一并删除)"
+          '

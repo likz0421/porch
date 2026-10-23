@@ -136,7 +136,13 @@ define Package/porch/postinst
 #!/bin/sh
 if [ -z "$${IPKG_INSTROOT}" ]; then
 	chmod 755 /etc/init.d/porch
-	/etc/init.d/porch enable
+	/etc/init.d/porch enable >/dev/null 2>&1 || true
+	# 兜底：不同版本 rc.common 的 enable 行为不完全一致，无条件确认 rc.d 链接
+	if [ ! -L /etc/rc.d/S99porch ]; then
+		mkdir -p /etc/rc.d 2>/dev/null || true
+		ln -sf ../init.d/porch /etc/rc.d/S99porch 2>/dev/null || true
+		ln -sf ../init.d/porch /etc/rc.d/K15porch 2>/dev/null || true
+	fi
 	if ! /usr/bin/porch -v >/dev/null 2>&1; then
 		echo "porch: [警告] /usr/bin/porch 无法在本机执行，很可能装错了架构包" >&2
 		echo "porch: 本机 uname -m = $$(uname -m)；请按架构名重新下载" >&2

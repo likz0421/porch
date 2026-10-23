@@ -186,6 +186,8 @@ build_porch() {
 	cat >"$stg/scripts/post-install" <<'EOS'
 #!/bin/sh
 [ -n "${IPKG_INSTROOT}" ] && exit 0
+
+# 1) 运行期架构自检：apk 的 arch 写 noarch，装错架构它不会拦，这里补一道
 if /usr/bin/porch -v >/dev/null 2>&1; then
 	echo "porch: $(/usr/bin/porch -v 2>/dev/null | head -n1)"
 else
@@ -194,7 +196,17 @@ else
 	echo "porch:   https://github.com/likz0421/porch/releases/latest" >&2
 	echo "porch: MIPS 机型若报 Illegal instruction，请换 softfloat 版本。" >&2
 fi
-/etc/init.d/porch enable 2>/dev/null || true
+
+# 2) 开机自启。先走 rc.common 的标准路径，再无条件兜底建 rc.d 链接
+#    —— 不同 OpenWrt 版本 rc.common 的 enable 行为不完全一致，不能只依赖它。
+chmod 755 /etc/init.d/porch 2>/dev/null || true
+/etc/init.d/porch enable >/dev/null 2>&1 || true
+if [ ! -L /etc/rc.d/S99porch ]; then
+	mkdir -p /etc/rc.d 2>/dev/null || true
+	ln -sf ../init.d/porch /etc/rc.d/S99porch 2>/dev/null || true
+	ln -sf ../init.d/porch /etc/rc.d/K15porch 2>/dev/null || true
+fi
+
 exit 0
 EOS
 	cp "$stg/scripts/post-install" "$stg/scripts/post-upgrade"
@@ -203,8 +215,10 @@ EOS
 	cat >"$stg/scripts/pre-deinstall" <<'EOS'
 #!/bin/sh
 [ -n "${IPKG_INSTROOT}" ] && exit 0
-/etc/init.d/porch stop 2>/dev/null || true
-/etc/init.d/porch disable 2>/dev/null || true
+/etc/init.d/porch stop >/dev/null 2>&1 || true
+/etc/init.d/porch disable >/dev/null 2>&1 || true
+# rc.d 链接是 post-install 建的、不在包文件清单里，卸载时得自己收干净
+rm -f /etc/rc.d/S99porch /etc/rc.d/K15porch 2>/dev/null || true
 exit 0
 EOS
 	chmod 755 "$stg"/scripts/*
