@@ -12,13 +12,12 @@ mips64le。所有二进制都是**纯静态链接**（`CGO_ENABLED=0`），目�
 
 | 类别 | 资产 |
 |---|---|
-| Linux（10） | `Linux_x86_64` `Linux_i386` `Linux_arm64` `Linux_armv7` `Linux_armv6` `Linux_armv5` `Linux_mips_hardfloat` `Linux_mips_softfloat` `Linux_mipsle_hardfloat` `Linux_mipsle_softfloat` `Linux_riscv64` |
+| Linux（11） | `Linux_x86_64` `Linux_i386` `Linux_arm64` `Linux_armv7` `Linux_armv6` `Linux_armv5` `Linux_mips_hardfloat` `Linux_mips_softfloat` `Linux_mipsle_hardfloat` `Linux_mipsle_softfloat` `Linux_riscv64` |
 | macOS（2） | `darwin_arm64` `darwin_x86_64` |
 | FreeBSD（3） | `freebsd_x86_64` `freebsd_i386` `freebsd_arm64` |
 | Windows（2） | `Windows_x86_64` `Windows_i386` |
 
-> 上表 Linux 一栏实际是 11 个（x86_64/i386/arm64/armv7/armv6/armv5/mips×2/mipsle×2/riscv64），
-> 与另外 2+3+2 相加正好 18。
+> 合计 11 + 2 + 3 + 2 = **18 个**。
 
 此外，Lucky 在 1.x 时期还发布过 OpenWrt 安装包（2.x 起只发 tar.gz）：
 
