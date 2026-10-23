@@ -84,11 +84,18 @@ def verify(path, expect_luci=False):
                             print("  [FAIL] control 缺字段 %s" % need)
                             ok = False
                     if expect_luci:
+                        # 独立打包的 luci 界面包不得依赖 porch：
+                        # 一键脚本装的裸二进制不在包管理器数据库里，
+                        # 带 porch 依赖会导致 apk/opkg 依赖检查直接拒绝安装。
                         deps = fields.get("Depends", "")
-                        for d in ("luci-base", "porch", "rpcd"):
-                            if d not in deps:
+                        dep_list = [d.strip() for d in deps.split(",") if d.strip()]
+                        for d in ("luci-base", "rpcd"):
+                            if d not in dep_list:
                                 print("  [FAIL] luci 包 Depends 缺 %s" % d)
                                 ok = False
+                        if "porch" in dep_list:
+                            print("  [FAIL] luci 包 Depends 不应含 porch（会被包管理器依赖检查卡死）")
+                            ok = False
                     if "Installed-Size" not in fields:
                         print("  [WARN] 无 Installed-Size（非致命）")
                 # 脚本必须可执行
